@@ -101,13 +101,23 @@ def main() -> None:
     parser.add_argument("--iteracoes", type=int, default=220)
     parser.add_argument("--polarimetrico", action="store_true",
                         help="grava também as tabelas por modo")
+    parser.add_argument("--coluna", type=float, default=None,
+                        help="Sigma em g/cm^2: atmosfera FINA sobre superfície "
+                             "emissora (SPW09 eq. 15); ausente = semi-infinita")
+    parser.add_argument("--vacuo", action="store_true",
+                        help="liga a polarização do vácuo no tensor")
+    parser.add_argument("--conversao", default="full",
+                        choices=("full", "partial", "none"),
+                        help="conversão de modos na ressonância de vácuo")
     arguments = parser.parse_args()
     table = build(arguments.campo,
                   [float(v) for v in arguments.temperaturas.split(",")],
                   [float(v) for v in arguments.gravidades.split(",")],
                   theta_b_degrees=[float(v) for v in arguments.angulos.split(",")],
                   mu_nodes=arguments.nos_mu, iterations=arguments.iteracoes,
-                  polarimetric=arguments.polarimetrico)
+                  polarimetric=arguments.polarimetrico,
+                  surface_column=arguments.coluna, vacuum=arguments.vacuo,
+                  conversion=arguments.conversao)
     formato.write(arguments.saida, table["log_t"], table["log_g"], table["theta_b"],
                   table["mu"], table["log_e"], table["log_w"])
     print(f"{arguments.saida}  ({arguments.saida.stat().st_size / 1e3:.0f} kB)")

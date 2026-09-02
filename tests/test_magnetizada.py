@@ -168,3 +168,51 @@ class TestTransportePolarizado(unittest.TestCase):
         self.assertLess(abs(total / expected - 1.0), 2.0e-2,
                         f"int F dE / sigma T^4 = {total / expected:.4f}")
         self.assertLess(solution["flux_error"], 5.0e-2)
+
+
+class TestAtmosferaFina(unittest.TestCase):
+    """P3: a atmosfera fina sobre superfície emissora, nos dois limites exatos.
+
+    A condição do fundo é a eq. (15) de Suleimanov, Pavlov & Werner (2009):
+    I+(fundo) = B/2 por modo. Sigma pequeno tem de degenerar no corpo negro
+    (medido: 0,6% com fluxo a 1e-7) e Sigma grande no semi-infinito (0,6%).
+    Entre os dois mora a classe de modelo que já venceu na RBS 1223
+    (Hambaryan et al. 2011), agora com feixe resolvido.
+    """
+
+    def test_coluna_minuscula_devolve_o_corpo_negro(self) -> None:
+        from atmosfera import estrutura
+        energies = estrutura.energy_grid(1.0e-3, 60.0, 70)
+        solution = mg.solve(6.1, 14.4, 1.0e13, iterations=120, mu_nodes=4,
+                            energies=energies, surface_column=1.0e-4)
+        blackbody = np.pi * estrutura.planck_energy(energies, 10.0 ** 6.1)
+        band = (energies >= 0.15) & (energies <= 2.0)
+        ratio = (solution["flux_energy"] / blackbody)[band]
+        self.assertLess(float(np.max(np.abs(ratio - 1.0))), 3.0e-2,
+                        f"razão {ratio.min():.4f} a {ratio.max():.4f}")
+
+    def test_coluna_intermediaria_converge(self) -> None:
+        # O regime que derrubou cinco consertos errados (amortecimento x2,
+        # escala de Newton, refino de grade x2): Sigma ~ 100 só converge com a
+        # injeção do fundo escravizada ao gás (SPW09, eq. 15) e a âncora de
+        # Newton em T[-1]. Este teste prende a cura: fluxo constante em
+        # profundidade e total no alvo.
+        from atmosfera import estrutura
+        energies = estrutura.energy_grid(1.0e-3, 60.0, 70)
+        solution = mg.solve(6.1, 14.4, 1.0e13, iterations=250, mu_nodes=4,
+                            energies=energies, surface_column=100.0)
+        total = float(np.trapezoid(solution["flux_energy"], energies)
+                      / (estrutura.STEFAN * (10.0 ** 6.1) ** 4))
+        self.assertLess(solution["flux_error"], 2.0e-2)
+        self.assertLess(abs(total - 1.0), 2.0e-2, f"total {total:.4f}")
+
+    def test_coluna_grande_devolve_o_semi_infinito(self) -> None:
+        from atmosfera import estrutura
+        energies = estrutura.energy_grid(1.0e-3, 60.0, 70)
+        shared = dict(iterations=150, mu_nodes=4, energies=energies)
+        thick = mg.solve(6.1, 14.4, 1.0e13, surface_column=1.0e5, **shared)
+        infinite = mg.solve(6.1, 14.4, 1.0e13, **shared)
+        band = (energies >= 0.15) & (energies <= 2.0)
+        ratio = (thick["flux_energy"] / infinite["flux_energy"])[band]
+        self.assertLess(float(np.max(np.abs(ratio - 1.0))), 3.0e-2,
+                        f"razão {ratio.min():.4f} a {ratio.max():.4f}")

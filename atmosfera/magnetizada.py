@@ -103,7 +103,8 @@ def vacuum_delta(field_g: float) -> float:
 
 
 def mode_amplitudes(energy_kev: np.ndarray, theta_b: float, density: float,
-                    field_g: float, vacuum: bool = False) -> np.ndarray:
+                    field_g: float, vacuum: bool = False,
+                    details: bool = False):
     """|e_alpha^j|^2 dos dois modos: forma (n_E, 2 modos, 3 componentes).
 
     Resolve a equação de onda COMPLETA, com permeabilidade anisotrópica,
@@ -173,7 +174,11 @@ def mode_amplitudes(energy_kev: np.ndarray, theta_b: float, density: float,
     rows = np.arange(n_energy)[:, None]
     chosen = vectors[rows, :, order]                            # (n_E, 2, 3) cíclico
     chosen = chosen / np.linalg.norm(chosen, axis=2, keepdims=True)
-    return np.abs(chosen) ** 2
+    amplitudes = np.abs(chosen) ** 2
+    if details:
+        refractive = 1.0 / np.take_along_axis(values, order, axis=1)
+        return amplitudes, refractive
+    return amplitudes
 
 
 # --------------------------------------------------------------------------- #
@@ -435,7 +440,9 @@ def channel_geometry(energy_kev: np.ndarray, mu: np.ndarray, field_g: float,
 def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
           energies: np.ndarray | None = None, columns: np.ndarray | None = None,
           mu_nodes: int = 6, iterations: int = 200, tolerance: float = 1.0e-5,
-          damping: float = 0.25, vacuum: bool = False) -> dict:
+          damping: float = 0.25, vacuum: bool = False,
+          surface_column: float | None = None,
+          conversion: str = "full", trace: list | None = None) -> dict:
     """Atmosfera magnetizada, campo ao longo da normal: o caso dos `ThB00`.
 
     A mesma máquina do estágio 1 — hidrostática P = g·y, Unsöld–Lucy com
@@ -450,7 +457,16 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
     """
     from . import transporte, estrutura
     energies = estrutura.energy_grid(1.0e-3, 60.0, 220) if energies is None else energies
-    y = estrutura.column_grid() if columns is None else columns
+    # ATMOSFERA FINA (P3): coluna truncada em surface_column, com uma superfície
+    # emissora embaixo — I+(fundo) = B/2 por modo, a eq. (15) do Suleimanov,
+    # Pavlov & Werner (2009). É a classe de modelo que já venceu na RBS 1223
+    # (Hambaryan et al. 2011). Sigma pequeno degenera no corpo negro; Sigma
+    # grande, no semi-infinito — os dois limites são portões de graça.
+    if surface_column is not None and columns is None:
+        y = estrutura.column_grid(1.0e-6, surface_column,
+                                  max(41, int(24 * np.log10(surface_column * 1.0e6))))
+    else:
+        y = estrutura.column_grid() if columns is None else columns
     mu, weights = transporte.gauss_legendre_mu(mu_nodes)
     geometry = channel_geometry(energies, mu, field_g, theta_b=theta_b)
     # Amplitudes SEMPRE com o eixo de profundidade, por difusão de forma: sem
@@ -475,6 +491,13 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
     history = []
     previous_step = np.zeros(y.size)
     relaxation = np.ones(y.size)
+    # A temperatura da SUPERFÍCIE de baixo é estado próprio, separado do gás da
+    # última célula: são papéis diferentes — o gás obedece ao equilíbrio
+    # radiativo local, a superfície carrega o fluxo que falta. Amarrá-las numa
+    # variável só fazia o UL local re-esfriar o que a correção de fluxo subia.
+    surface_temperature = effective
+    surface_relaxation = 1.0
+    surface_previous = 0.0
 
     for step in range(iterations):
         density = pressure * estrutura.PROTON_MASS / (2.0 * estrutura.BOLTZMANN * temperature)
@@ -512,6 +535,55 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
         optical_depth = np.concatenate(
             [np.zeros((energies.size, n_channel, 1)),
              np.cumsum(increments, axis=2)], axis=2)
+        # CONVERSÃO PARCIAL DE MODOS (P2), van Adelsberg & Lai (2006): na
+        # célula em que a densidade cruza rho_V = 0,96 E_1^2 B_14^2 g/cm^3, os
+        # dois modos trocam com probabilidade P_jump = exp[-(pi/2)(E/E_ad)^3].
+        # Aqui a troca vira um espalhamento de TROCA localizado na célula do
+        # cruzamento, de espessura por travessia t = -ln(1 - P_jump): os canais
+        # já seguem os ramos ADIABÁTICOS (ordenação contínua por n^2), então o
+        # salto não adiabático é o evento de troca. conversion='full' (P=0) é o
+        # adiabático puro que já tínhamos; 'none' força a troca completa.
+        exchange = None
+        if vacuum and conversion != "full":
+            exchange = np.zeros((energies.size, n_channel, n_channel, y.size))
+            rho_v = 0.96 * energies ** 2 * (field_g / 1.0e14) ** 2
+            crossing = np.searchsorted(density, rho_v)
+            log_rho = np.log(np.maximum(density, 1.0e-300))
+            for ie in range(energies.size):
+                d = int(crossing[ie])
+                if d < 2 or d >= y.size - 1:
+                    continue
+                if conversion == "none":
+                    thickness = 30.0
+                else:
+                    dz = (y[d] - y[d - 1]) / max(float(density[d]), 1.0e-30)
+                    scale = dz / max(float(log_rho[d] - log_rho[d - 1]), 1.0e-12)
+                    for im, cosine in enumerate(mu):
+                        tan_kb = np.sqrt(max(0.0, 1.0 - cosine ** 2)) / max(cosine, 0.02)
+                        ion = CYCLOTRON_E_PER_GAUSS * field_g * MASS_RATIO
+                        e_ad = 2.52 * (tan_kb * abs(1.0 - (ion / energies[ie]) ** 2)) \
+                            ** (2.0 / 3.0) * max(scale / cosine, 1.0e-6) ** (-1.0 / 3.0)
+                        p_jump = np.exp(-0.5 * np.pi
+                                        * min((energies[ie] / max(e_ad, 1.0e-12)), 10.0) ** 3)
+                        t_cross = min(30.0, -np.log(max(1.0 - p_jump, 1.0e-13)))
+                        chi_ex = t_cross * cosine / max(float(y[d] - y[d - 1]), 1.0e-30)
+                        for mode in (0, 1):
+                            c = mode * mu.size + im
+                            partner = (1 - mode) * mu.size + im
+                            extinction[ie, c, d] += chi_ex
+                            exchange[ie, c, partner, d] = chi_ex
+                    continue
+                # conversion == 'none': troca forte para os dois modos, todo mu
+                for im, cosine in enumerate(mu):
+                    chi_ex = 30.0 * cosine / max(float(y[d] - y[d - 1]), 1.0e-30)
+                    for mode in (0, 1):
+                        c = mode * mu.size + im
+                        partner = (1 - mode) * mu.size + im
+                        extinction[ie, c, d] += chi_ex
+                        exchange[ie, c, partner, d] = chi_ex
+            # normaliza o acoplamento pela extinção total (unidades de S)
+            exchange = exchange / extinction[:, :, None, :]
+
         planck = estrutura.planck_energy(grid, temperature[None, :])
         thermal = absorption / extinction * planck[:, None, :] / 2.0
 
@@ -522,8 +594,21 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
                 / (extinction[:, None, :, :] * norm[:, :, None, :]))
         out_of = weight_channel[None, None, :, None] * turned
 
+        surface = None
+        if surface_column is not None:
+            # B na temperatura do GÁS do fundo (SPW09, eq. 15) — não num
+            # estado separado. Com injeção escravizada a T[-1], o fluxo
+            # profundo responde ao T local como na difusão do semi-infinito e
+            # os déficits do Unsöld-Lucy fecham; com injeção independente eles
+            # persistem e a integral de constância infla (medido: dJ/J até
+            # ±300 nos nós do fundo com o equilíbrio local exato).
+            surface = np.repeat(
+                (estrutura.planck_energy(energies, temperature[-1]) / 2.0)[:, None],
+                n_channel, axis=1)
         field = transporte.polarized_feautrier(optical_depth, mu_channel,
-                                               weight_channel, thermal, into, out_of)
+                                               weight_channel, thermal, into, out_of,
+                                               surface_intensity=surface,
+                                               exchange=exchange)
 
         mean_intensity = np.trapezoid(field["J"], energies, axis=0)
         flux_mid = np.trapezoid(field["H_mid"], energies, axis=0)
@@ -558,6 +643,25 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
                                                       flux_mid, 1.0))
 
         deficit = target_flux - flux
+        if surface_column is not None:
+            # Onde o gás NÃO tem autoridade sobre o fluxo, o acelerador de
+            # Unsöld-Lucy não entra. Na camada colada à fronteira emissora o
+            # fluxo é da superfície (condutor de Newton), não do T local; a
+            # integral de constância com opacidade enorme ali é windup de
+            # integrador — medido, ciclo-limite em Sigma = 100 imune a
+            # amortecimento, e REFINAR a grade só piorou (mais células sem
+            # autoridade). O funil é o acoplamento radiativo à fronteira:
+            # w = 1 - exp(-tau_h até o fundo), com tau_h da própria opacidade
+            # pesada pelo fluxo. Longe do fundo, w = 1 e nada muda.
+            # Em módulo: a opacidade pesada pelo fluxo troca de sinal quando
+            # H cruza zero, e uma distância óptica negativa estoura o expm1
+            # (NaN medido em Sigma = 100). Distância é comprimento, não saldo.
+            reach_step = np.abs(0.5 * (extinction_h[1:] + extinction_h[:-1])
+                                * np.diff(y))
+            reach = np.concatenate(
+                [np.cumsum(reach_step[::-1])[::-1], [0.0]])
+            authority = -np.expm1(-np.minimum(reach, 700.0))
+            deficit = deficit * authority
         integrand = extinction_h * deficit
         accumulated = np.concatenate(
             [[0.0], np.cumsum(0.5 * (integrand[1:] + integrand[:-1]) * np.diff(y))])
@@ -574,11 +678,77 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
         previous_step = delta_t
         delta_t = np.clip(relaxation * delta_t, -damping * temperature,
                           damping * temperature)
+        if surface_column is not None:
+            delta_t[-1] = 0.0    # o nó do fundo pertence à âncora de Newton
         temperature = np.maximum(temperature + delta_t, 0.05 * effective)
         temperature[0] = temperature[1]
+        # Atmosfera fina: a superfície de baixo é quem carrega o fluxo, e a
+        # correção de Unsöld-Lucy não a alcança quando a coluna é transparente —
+        # não há opacidade por onde o déficit se propagar (medido: com
+        # Sigma = 1e-4 o fluxo estaciona em 0,5 do alvo, que é exatamente
+        # (0,84)^4 do palpite cinza). Então T do fundo é dirigida DIRETAMENTE
+        # pelo fluxo emergente: sigma T_N^4 sobe ou desce pelo que falta.
+        if surface_column is not None:
+            # E só a cada 5 iterações: o Newton abaixo assume o gás congelado,
+            # mas o gás do fundo reequilibra a cada passo e cancela parte da
+            # resposta — o ping-pong resultante tem período > 2 e escapa da
+            # relaxação por troca de sinal (medido em Sigma = 100, erro preso
+            # em ~4 com tudo o mais convergindo). Separar as escalas de tempo
+            # deixa o gás assentar entre passos da superfície.
+            surface_turn = True
+        if surface_column is not None:
+            flux_bottom = float(flux[-1])
+        if surface_column is not None and surface_turn:
+            # O observável do condutor é o fluxo líquido NO FUNDO, não no topo.
+            # Mirando o topo, o calor que o gás despeja para baixo some num
+            # sorvedouro (a superfície absorve sem reemitir) e o Unsöld-Lucy
+            # compensa aquecendo o interior sem freio — medido, erro de fluxo
+            # até 72 no regime intermediário. Ancorado no fundo, a malha é
+            # conservativa: entrada = alvo, equilíbrio radiativo no gás, e a
+            # saída no topo converge ao alvo por conservação. Nos limites, o
+            # fundo coincide com o topo (transparente) ou com a luminosidade
+            # interior (espessa) — o mesmo observável serve aos três regimes.
+            # E com a MESMA relaxação adaptativa do Unsöld-Lucy: sem memória,
+            # o ganho do laço superfície-interior passa de 1 em Sigma ~ 100 e a
+            # iteração entra em ciclo-limite (medido: erro de fluxo quicando
+            # entre 0,8 e 20 por 1500 iterações). Troca de sinal corta o passo
+            # pela metade; persistência o deixa crescer de volta.
+            # Passo de Newton com a derivada física dF/dT_sup ~ sigma T_sup^3:
+            # quando o fundo é opticamente espesso, a injeção líquida responde a
+            # T_sup como contato térmico, ~30x mais ríspida em T_sup ~ 3 T_ef do
+            # que o passo multiplicativo assumia — 1% em T_sup arremessava o
+            # fluxo do fundo por múltiplos do alvo (ciclo-limite medido em
+            # Sigma = 100). O Newton encolhe sozinho conforme T_sup sobe.
+            derivative = estrutura.STEFAN * temperature[-1] ** 3 / np.pi
+            newton_step = (target_flux - flux_bottom) / derivative
+            if newton_step * surface_previous < 0.0:
+                surface_relaxation = max(0.05, 0.5 * surface_relaxation)
+            else:
+                surface_relaxation = min(1.0, 1.1 * surface_relaxation)
+            surface_previous = newton_step
+            newton_step = float(np.clip(surface_relaxation * newton_step,
+                                        -0.1 * temperature[-1],
+                                        0.12 * temperature[-1]))
+            temperature[-1] = max(temperature[-1] + newton_step,
+                                  0.05 * effective)
 
         change = float(np.max(np.abs(delta_t[1:]) / temperature[1:]))
-        flux_error = float(np.max(np.abs(flux - target_flux)) / target_flux)
+        if trace is not None:
+            j = 1 + int(np.argmax(np.abs(delta_t[1:]) / temperature[1:]))
+            trace.append((j, float(y[j]), float(temperature[j] / effective),
+                          float(temperature[-1] / effective),
+                          float(delta_j[j] / max(mean_intensity[j], 1e-300)),
+                          float(absorption_j[j] * mean_intensity[j]
+                                / max(absorption_b[j] * integrated_planck[j], 1e-300)),
+                          float(flux[j] / target_flux)))
+        if surface_column is not None:
+            # O erro conta onde há autoridade, mais o desvio da âncora do fundo
+            # (no transparente, w ~ 0 em toda parte e a âncora é o que resta).
+            flux_error = float(max(
+                np.max(np.abs(flux - target_flux) * authority),
+                abs(target_flux - flux_bottom)) / target_flux)
+        else:
+            flux_error = float(np.max(np.abs(flux - target_flux)) / target_flux)
         history.append((change, flux_error))
         if change < tolerance and flux_error < 1.0e-3:
             break
@@ -597,6 +767,7 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
         "theta_b": theta_b, "field_g": field_g, "vacuum": vacuum,
         "flux_energy": 4.0 * np.pi * field["H_surface"],
         "flux_error": history[-1][1], "iterations": len(history), "history": history,
+        "flux_depth": flux, "surface_temperature": temperature[-1],
     }
 
 

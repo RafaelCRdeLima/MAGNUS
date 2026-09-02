@@ -595,7 +595,9 @@ def _bands_by_channel(tau: np.ndarray, mu: np.ndarray) -> tuple:
 
 def polarized_feautrier(tau: np.ndarray, mu_channel: np.ndarray,
                         weight_channel: np.ndarray, thermal: np.ndarray,
-                        into: np.ndarray, out_of: np.ndarray) -> dict:
+                        into: np.ndarray, out_of: np.ndarray,
+                        surface_intensity: np.ndarray | None = None,
+                        exchange: np.ndarray | None = None) -> dict:
     """Os dois modos acoplados por espalhamento, resolvidos de uma vez.
 
     A peça central do estágio 2. Os canais são (modo, ângulo) — 2 x n_mu — e a
@@ -620,6 +622,21 @@ def polarized_feautrier(tau: np.ndarray, mu_channel: np.ndarray,
 
     O mesmo bloco-tridiagonal em profundidade de `coupled_feautrier`, com o
     bloco agora sobre canais e o acoplamento de posto 3 em vez de 1.
+
+    **`surface_intensity`** troca o contorno de baixo: em vez de difusão
+    (atmosfera semi-infinita), impõe I+(fundo) = valor dado por canal — a
+    condição de ATMOSFERA FINA sobre superfície emissora, literalmente a
+    eq. (15) de Suleimanov, Pavlov & Werner (2009): I(mu>0, m_max) = B_nu/2.
+    A álgebra: u + mu du/dtau = I+_sup vira, em segunda ordem,
+
+        (1 + mu/D + D/2mu) u_N - (mu/D) u_{N-1} = I+_sup + (D/2mu) S_N
+
+    — mesmas diagonais do caso difusivo; muda só o lado direito, que perde o
+    termo em S_{N-1} e ganha a fonte da superfície.
+
+    **`exchange`** (n_E, n_C, n_C, n_prof) soma um acoplamento extra por célula
+    ao bloco — é por onde entra a conversão parcial de modos na ressonância de
+    vácuo, como espalhamento de troca localizado na célula do cruzamento.
     """
     n_freq, n_channel, n_depth = tau.shape
     flat_tau = tau.reshape(n_freq * n_channel, n_depth)
@@ -635,8 +652,12 @@ def polarized_feautrier(tau: np.ndarray, mu_channel: np.ndarray,
     identity = np.eye(n_channel)
 
     def coupling(index: int) -> np.ndarray:
-        # soma_alpha into (x) out_of, o posto 3 do bloco.
-        return np.einsum("fac,fad->fcd", into[:, :, :, index], out_of[:, :, :, index])
+        # soma_alpha into (x) out_of, o posto 3 do bloco — mais a troca local,
+        # se houver.
+        block = np.einsum("fac,fad->fcd", into[:, :, :, index], out_of[:, :, :, index])
+        if exchange is not None:
+            block = block + exchange[:, :, :, index]
+        return block
 
     def block(index: int):
         sub = lower[:, :, index, None] * identity
@@ -646,6 +667,13 @@ def polarized_feautrier(tau: np.ndarray, mu_channel: np.ndarray,
             main = main - top[:, :, None] * coupling(0)
             return sub, main, sup, top * thermal[:, :, 0]
         if index == n_depth - 1:
+            if surface_intensity is not None:
+                # Atmosfera fina: I+(fundo) imposto. O coeficiente de S_N é
+                # D/(2 mu), que sai das três quantidades já montadas.
+                bottom_thermal = bottom_self - 1.0 + bottom_previous
+                main = main - bottom_thermal[:, :, None] * coupling(index)
+                free = bottom_thermal * thermal[:, :, -1] + surface_intensity
+                return sub, main, sup, free
             main = main - bottom_self[:, :, None] * coupling(index)
             sub = sub - bottom_previous[:, :, None] * coupling(index - 1)
             free = bottom_self * thermal[:, :, -1] + \

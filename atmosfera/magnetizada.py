@@ -46,6 +46,8 @@ CYCLOTRON_E_PER_GAUSS = 1.157672e-11
 MASS_RATIO = 5.446170214889e-4
 ELECTRON_REST_KEV = 510.99895
 FINE_STRUCTURE = 7.2973525693e-3
+#: Campo crítico da QED, m_e^2 c^3 / (e hbar), em gauss.
+CRITICAL_FIELD_G = 4.41405e13
 #: Amortecimento radiativo clássico: Gamma(E) = (2 alfa/3) E^2 / (m c^2).
 def _radiative_damping(energy_kev: np.ndarray, mass_kev: float) -> np.ndarray:
     return (2.0 * FINE_STRUCTURE / 3.0) * energy_kev ** 2 / mass_kev
@@ -89,42 +91,89 @@ def dielectric_cyclic(energy_kev: np.ndarray, density: float, field_g: float,
     return 1.0 + e_plus + p_plus, 1.0 + e_minus + p_minus, 1.0 + e_along + p_along
 
 
+def vacuum_delta(field_g: float) -> float:
+    """O parâmetro do vácuo de Euler-Heisenberg: delta = (alfa/45pi)(B/B_Q)^2.
+
+    Regime de campo fraco, B abaixo do crítico (4,41e13 G). Em lg B = 13,5 o
+    B/B_Q vale 0,72 e a expansão já é marginal — fica declarado: os coeficientes
+    exatos de campo forte (funções especiais de Heyl & Hernquist) são o
+    refinamento, e trocam só três números aqui dentro.
+    """
+    return FINE_STRUCTURE / (45.0 * np.pi) * (field_g / CRITICAL_FIELD_G) ** 2
+
+
 def mode_amplitudes(energy_kev: np.ndarray, theta_b: float, density: float,
-                    field_g: float) -> np.ndarray:
+                    field_g: float, vacuum: bool = False) -> np.ndarray:
     """|e_alpha^j|^2 dos dois modos: forma (n_E, 2 modos, 3 componentes).
 
-    Resolve o autoproblema generalizado eps E = n^2 (I - kk) E por energia. A
-    matriz (I - kk) tem posto 2, então saem dois autovalores finitos — os modos
-    eletromagnéticos — e um infinito, o longitudinal, que é descartado. Os
-    autovetores voltam projetados na base cíclica (e_+, e_-, e_z) em relação a
-    B, normalizados a 1.
+    Resolve a equação de onda COMPLETA, com permeabilidade anisotrópica,
 
-    Os modos saem ordenados por |n^2| DECRESCENTE, o que abaixo do cíclotron do
-    elétron põe o ordinário antes do extraordinário. A ordenação é convenção de
-    saída; a física está nas amplitudes.
+        n^2 k x (mu^-1 (k x E)) + eps E = 0,
+
+    reescrita como autoproblema ordinário A E = lambda E com A = eps^-1 M,
+    M = -[k]x mu^-1 [k]x e lambda = 1/n^2: dois autovalores não nulos são os
+    modos eletromagnéticos (n^2 = 1/lambda) e o nulo é o longitudinal,
+    descartado. Com mu = I isso degenera exatamente em M = I - kk, que era a
+    forma anterior. Tudo vetorizado sobre a energia — o laço por ponto com eig
+    generalizado custava a viabilidade do vácuo dentro da atmosfera, onde as
+    amplitudes deixam de ser independentes da densidade.
+
+    **O vácuo entra aqui e em mais lugar nenhum** (a aposta de arquitetura do
+    arranque, agora paga): com `vacuum=True`,
+
+        eps_± += -2 delta      eps_z += +5 delta      (I - 2d + 7d bb)
+        mu^-1 = (1 - 2 delta) I - 4 delta bb
+
+    os coeficientes -2, 7, -4 de Euler-Heisenberg em campo fraco. A conversão
+    adiabática de modos NA ressonância de vácuo não é tratada — os modos são
+    calculados dos dois lados dela, e o transporte os acopla por espalhamento;
+    o colchete com/sem conversão continua sendo o teste do estágio 5.
+
+    Os modos saem ordenados por |n^2| decrescente, como antes.
     """
     plus, minus, along = dielectric_cyclic(energy_kev, density, field_g)
-    sin_t, cos_t = np.sin(theta_b), np.cos(theta_b)
-    direction = np.array([sin_t, 0.0, cos_t])
-    projector = np.eye(3) - np.outer(direction, direction)
+    if vacuum:
+        delta = vacuum_delta(field_g)
+        plus = plus - 2.0 * delta
+        minus = minus - 2.0 * delta
+        along = along + 5.0 * delta
+        inverse_mu = np.diag([1.0 - 2.0 * delta, 1.0 - 2.0 * delta,
+                              1.0 - 6.0 * delta])
+    else:
+        inverse_mu = np.eye(3)
 
-    # Base cíclica -> cartesiana: eps_xx = (eps_+ + eps_-)/2 etc.
-    result = np.zeros((len(np.atleast_1d(energy_kev)), 2, 3))
-    from scipy.linalg import eig
-    for index in range(result.shape[0]):
-        p, m, z = plus[index], minus[index], along[index]
-        tensor = np.array([[(p + m) / 2.0, -1j * (p - m) / 2.0, 0.0],
-                           [1j * (p - m) / 2.0, (p + m) / 2.0, 0.0],
-                           [0.0, 0.0, z]])
-        values, vectors = eig(tensor, projector)
-        finite = np.argsort(np.where(np.isfinite(values), -np.abs(values), np.inf))[:2]
-        for slot, which in enumerate(finite):
-            e = vectors[:, which]
-            e = e / np.linalg.norm(e)
-            cyclic = np.array([(e[0] + 1j * e[1]) / np.sqrt(2.0),
-                               (e[0] - 1j * e[1]) / np.sqrt(2.0), e[2]])
-            result[index, slot] = np.abs(cyclic) ** 2
-    return result
+    sin_t, cos_t = np.sin(theta_b), np.cos(theta_b)
+    cross = np.array([[0.0, -cos_t, 0.0],
+                      [cos_t, 0.0, -sin_t],
+                      [0.0, sin_t, 0.0]])
+    propagation = -cross @ inverse_mu @ cross
+
+    # Tudo na BASE CÍCLICA, onde eps é diagonal exata. Não é estética: em
+    # theta = 0 a matriz inteira fica diagonal e os modos saem como vetores da
+    # base por construção. Na base cartesiana os dois autovalores transversos
+    # coincidem ao nível do termo de plasma — 1e-14 em densidade baixa — e o
+    # eig devolve uma base ARBITRÁRIA do subespaço quase degenerado, misturando
+    # as circulares por ~1%: exatamente as componentes que separam a
+    # ressonância do próton da do elétron.
+    n_energy = len(np.atleast_1d(energy_kev))
+    root_half = 1.0 / np.sqrt(2.0)
+    to_cyclic = np.array([[root_half, 1j * root_half, 0.0],
+                          [root_half, -1j * root_half, 0.0],
+                          [0.0, 0.0, 1.0]])
+    cyclic_propagation = to_cyclic @ propagation.astype(complex) @ to_cyclic.conj().T
+    epsilon_diag = np.stack([plus, minus, along], axis=-1)      # (n_E, 3)
+    system = cyclic_propagation[None, :, :] / epsilon_diag[:, :, None]
+    values, vectors = np.linalg.eig(system)
+
+    # Dois maiores |lambda| = os modos; ordena por |n^2| = 1/|lambda| decrescente,
+    # ou seja |lambda| CRESCENTE entre os dois escolhidos.
+    order = np.argsort(-np.abs(values), axis=1)[:, :2]
+    order = np.take_along_axis(order, np.argsort(
+        np.take_along_axis(np.abs(values), order, axis=1), axis=1), axis=1)
+    rows = np.arange(n_energy)[:, None]
+    chosen = vectors[rows, :, order]                            # (n_E, 2, 3) cíclico
+    chosen = chosen / np.linalg.norm(chosen, axis=2, keepdims=True)
+    return np.abs(chosen) ** 2
 
 
 # --------------------------------------------------------------------------- #
@@ -232,14 +281,14 @@ def cyclic_free_free(energy_kev: np.ndarray, density: np.ndarray,
 
 
 def mode_opacities(energy_kev: np.ndarray, theta_b: float, density: float,
-                   temperature: float, field_g: float) -> dict:
+                   temperature: float, field_g: float, vacuum: bool = False) -> dict:
     """kappa_j(E) dos dois modos, absorção e espalhamento separados.
 
     A montagem final: amplitudes cíclicas do autoproblema vezes as opacidades
     cíclicas. Devolve também as amplitudes, porque o traçado de raios do futuro
     vai querer a polarização e não só a opacidade.
     """
-    amplitudes = mode_amplitudes(energy_kev, theta_b, density, field_g)
+    amplitudes = mode_amplitudes(energy_kev, theta_b, density, field_g, vacuum=vacuum)
     scattering = cyclic_scattering(energy_kev, field_g)
     absorption = cyclic_free_free(energy_kev, np.full_like(np.asarray(energy_kev, float),
                                                            density),
@@ -257,7 +306,8 @@ def mode_opacities(energy_kev: np.ndarray, theta_b: float, density: float,
 
 
 def rosseland_two_modes(energy_kev: np.ndarray, theta_b: float, density: float,
-                        temperature: float, field_g: float) -> float:
+                        temperature: float, field_g: float,
+                        vacuum: bool = False) -> float:
     """K(theta) em cm^2/g, com os dois modos conduzindo o fluxo em paralelo.
 
         1/K = < (1/2)(1/chi_1 + 1/chi_2) >_Rosseland
@@ -266,7 +316,8 @@ def rosseland_two_modes(energy_kev: np.ndarray, theta_b: float, density: float,
     média aritmética o piso sairia sete ordens de grandeza acima do tabelado.
     """
     from .estrutura import planck_temperature_derivative
-    modes = mode_opacities(energy_kev, theta_b, density, temperature, field_g)
+    modes = mode_opacities(energy_kev, theta_b, density, temperature, field_g,
+                           vacuum=vacuum)
     total = modes["scattering"] + modes["absorption"]
     weight = planck_temperature_derivative(np.asarray(energy_kev, float),
                                            np.full(len(np.atleast_1d(energy_kev)),
@@ -278,7 +329,8 @@ def rosseland_two_modes(energy_kev: np.ndarray, theta_b: float, density: float,
 
 
 def rosseland_tensor(energy_kev: np.ndarray, density: float, temperature: float,
-                     field_g: float, angle_nodes: int = 12) -> tuple[float, float]:
+                     field_g: float, angle_nodes: int = 12,
+                     vacuum: bool = False) -> tuple[float, float]:
     """(K_paralelo, K_perpendicular) em cm^2/g — as duas colunas do Potekhin.
 
     **K0 não é a opacidade em theta = 0.** O fluxo difusivo ao longo de B soma
@@ -309,7 +361,7 @@ def rosseland_tensor(energy_kev: np.ndarray, density: float, temperature: float,
     inverse = np.zeros((energy.size, mu.size))
     for index, cosine in enumerate(mu):
         modes = mode_opacities(energy, float(np.arccos(cosine)), density,
-                               temperature, field_g)
+                               temperature, field_g, vacuum=vacuum)
         total = modes["scattering"] + modes["absorption"]
         inverse[:, index] = 0.5 * (1.0 / total[:, 0] + 1.0 / total[:, 1])
     parallel = 3.0 * inverse @ (weight * mu ** 2)
@@ -383,7 +435,7 @@ def channel_geometry(energy_kev: np.ndarray, mu: np.ndarray, field_g: float,
 def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
           energies: np.ndarray | None = None, columns: np.ndarray | None = None,
           mu_nodes: int = 6, iterations: int = 200, tolerance: float = 1.0e-5,
-          damping: float = 0.25) -> dict:
+          damping: float = 0.25, vacuum: bool = False) -> dict:
     """Atmosfera magnetizada, campo ao longo da normal: o caso dos `ThB00`.
 
     A mesma máquina do estágio 1 — hidrostática P = g·y, Unsöld–Lucy com
@@ -401,7 +453,12 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
     y = estrutura.column_grid() if columns is None else columns
     mu, weights = transporte.gauss_legendre_mu(mu_nodes)
     geometry = channel_geometry(energies, mu, field_g, theta_b=theta_b)
-    amplitudes = geometry["amplitudes"]                     # (nE, nC, 3)
+    # Amplitudes SEMPRE com o eixo de profundidade, por difusão de forma: sem
+    # vácuo elas não dependem da densidade e o eixo é broadcast; com vácuo a
+    # razão plasma/vácuo varia ao longo da coluna — a ressonância de vácuo
+    # cruza a atmosfera — e as amplitudes são recalculadas por profundidade a
+    # cada iteração (o autoproblema vetorizado é o que paga essa conta).
+    amplitudes = geometry["amplitudes"][:, :, :, None]      # (nE, nC, 3, 1)
     mu_channel = geometry["mu_channel"]
     # Os pesos somam DOIS — a quadratura angular inteira por modo — para que J
     # e H saiam como totais (soma das duas polarizações) e não como médias por
@@ -421,6 +478,16 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
 
     for step in range(iterations):
         density = pressure * estrutura.PROTON_MASS / (2.0 * estrutura.BOLTZMANN * temperature)
+        if vacuum:
+            stack = np.zeros((energies.size, 2 * mu.size, 3, y.size))
+            for im, cosine in enumerate(mu):
+                for id_ in range(y.size):
+                    block = mode_amplitudes(energies, float(np.arccos(cosine)),
+                                            max(float(density[id_]), 1.0e-30),
+                                            field_g, vacuum=True)
+                    stack[:, im, :, id_] = block[:, 0]
+                    stack[:, mu.size + im, :, id_] = block[:, 1]
+            amplitudes = stack
         absorption_cyclic = cyclic_free_free(grid, density[None, :],
                                              temperature[None, :], field_g)  # (nE,nD,3)
         # O espalhamento agora também é por profundidade: a ressonância do
@@ -428,24 +495,32 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
         scattering_cyclic = cyclic_scattering(grid, field_g, density[None, :],
                                               temperature[None, :])          # (nE,nD,3)
         # Por canal: absorção e espalhamento projetados nas amplitudes.
-        absorption = np.einsum("eca,eda->ecd", amplitudes, absorption_cyclic)
-        scattering = np.einsum("eca,eda->ecd", amplitudes, scattering_cyclic)
+        wide = np.broadcast_to(amplitudes,
+                               (energies.size, mu_channel.size, 3, y.size))
+        absorption = np.einsum("ecad,eda->ecd", wide, absorption_cyclic)
+        scattering = np.einsum("ecad,eda->ecd", wide, scattering_cyclic)
         extinction = absorption + scattering
+        # Piso no INCREMENTO de tau, e é numérico declarado, não física: com o
+        # vácuo dominante o modo X fica com e_z exatamente zero em todo ângulo e
+        # a extinção do canal cai a 1e-12 cm²/g — o fóton é quase livre, o que é
+        # verdade, mas o bloco de Feautrier passa a misturar escalas separadas
+        # por 13 ordens e devolve J negativo enorme. Um passo mínimo de 1e-8 em
+        # tau (1e-6 na coluna inteira: transparente do mesmo jeito) devolve o
+        # condicionamento sem tocar em nada observável.
+        increments = np.maximum(0.5 * (extinction[:, :, 1:] + extinction[:, :, :-1])
+                                * np.diff(y), 1.0e-8)
         optical_depth = np.concatenate(
             [np.zeros((energies.size, n_channel, 1)),
-             np.cumsum(0.5 * (extinction[:, :, 1:] + extinction[:, :, :-1])
-                       * np.diff(y), axis=2)], axis=2)
+             np.cumsum(increments, axis=2)], axis=2)
         planck = estrutura.planck_energy(grid, temperature[None, :])
         thermal = absorption / extinction * planck[:, None, :] / 2.0
 
         # Acoplamento de posto 3, conservando fóton por construção.
-        norm = np.einsum("c,eca->ea", weight_channel, amplitudes)
-        into = (amplitudes.transpose(0, 2, 1)[:, :, :, None]
-                * scattering_cyclic.transpose(0, 2, 1)[:, :, None, :]
-                / (extinction[:, None, :, :] * norm[:, :, None, None]))
-        out_of = (weight_channel[None, None, :, None]
-                  * amplitudes.transpose(0, 2, 1)[:, :, :, None]
-                  * np.ones((1, 1, 1, y.size)))
+        norm = np.einsum("c,ecad->ead", weight_channel, wide)
+        turned = wide.transpose(0, 2, 1, 3)                     # (nE, 3, nC, nD)
+        into = (turned * scattering_cyclic.transpose(0, 2, 1)[:, :, None, :]
+                / (extinction[:, None, :, :] * norm[:, :, None, :]))
+        out_of = weight_channel[None, None, :, None] * turned
 
         field = transporte.polarized_feautrier(optical_depth, mu_channel,
                                                weight_channel, thermal, into, out_of)
@@ -508,10 +583,86 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
         if change < tolerance and flux_error < 1.0e-3:
             break
 
+    # A função fonte por canal, reconstruída do estado convergido: térmica mais
+    # espalhada. É o que o feixe resolvido em phi consome na solução formal.
+    gathered = np.einsum("eacd,ecd->ead", out_of, np.maximum(field["u"], 0.0))
+    source_channel = thermal + np.einsum("eacd,ead->ecd", into, gathered)
     return {
         "energies": energies, "columns": y, "mu": mu, "mu_channel": mu_channel,
         "weight_channel": weight_channel, "temperature": temperature,
         "density": density, "intensity": field["I_surface"],
+        "intensity_modes": (field["I_surface"][:, :mu.size],
+                            field["I_surface"][:, mu.size:]),
+        "source_channel": source_channel,
+        "theta_b": theta_b, "field_g": field_g, "vacuum": vacuum,
         "flux_energy": 4.0 * np.pi * field["H_surface"],
         "flux_error": history[-1][1], "iterations": len(history), "history": history,
     }
+
+
+def phi_resolved_intensity(solution: dict, phi: np.ndarray) -> np.ndarray:
+    """I(E, mu, phi) emergente, com a atenuação exata e a fonte phi-média.
+
+    O item que faltava do feixe: o transporte resolve a ESTRUTURA com opacidades
+    mediadas em phi (aproximação declarada em `channel_geometry`), mas o feixe
+    que sai não precisa herdar a média — a solução formal ao longo de cada raio
+    (mu, phi) usa a opacidade EXATA daquele azimute,
+
+        I_j(0; mu, phi) = int S_j(tau') e^-tau' dtau',
+        dtau' = chi_j(theta(mu, phi)) dy / mu,
+
+    com S_j por canal vinda do estado convergido. O que continua phi-médio é a
+    fonte; a atenuação e a geometria dos modos são as do raio. Devolve a soma
+    dos dois modos, forma (n_E, n_mu, n_phi).
+    """
+    energies = solution["energies"]
+    y = solution["columns"]
+    mu = solution["mu"]
+    density = solution["density"]
+    temperature = solution["temperature"]
+    field_g = solution["field_g"]
+    theta_b = solution["theta_b"]
+    vacuum = solution["vacuum"]
+    source = solution["source_channel"]
+    n_mu = mu.size
+
+    absorption_cyclic = cyclic_free_free(energies[:, None], density[None, :],
+                                         temperature[None, :], field_g)
+    scattering_cyclic = cyclic_scattering(energies[:, None], field_g,
+                                          density[None, :], temperature[None, :])
+    cyclic = absorption_cyclic + scattering_cyclic                  # (nE, nD, 3)
+
+    result = np.zeros((energies.size, n_mu, phi.size))
+    sin_b, cos_b = np.sin(theta_b), np.cos(theta_b)
+    for im, cosine in enumerate(mu):
+        sine = np.sqrt(max(0.0, 1.0 - cosine ** 2))
+        for ip, azimuth in enumerate(phi):
+            ray = np.arccos(np.clip(cosine * cos_b
+                                    + sine * sin_b * np.cos(azimuth), -1.0, 1.0))
+            for mode in (0, 1):
+                # Amplitudes do raio, por profundidade se o vácuo estiver
+                # ligado; uma vez só se não estiver.
+                if vacuum:
+                    extinction = np.zeros((energies.size, y.size))
+                    for depth in range(y.size):
+                        amp = mode_amplitudes(energies, float(ray),
+                                              max(float(density[depth]), 1.0e-30),
+                                              field_g, vacuum=True)[:, mode]
+                        extinction[:, depth] = np.einsum(
+                            "ea,ea->e", amp, cyclic[:, depth])
+                else:
+                    amp = mode_amplitudes(energies, float(ray), 1.0e-2,
+                                          field_g)[:, mode]
+                    extinction = np.einsum("ea,eda->ed", amp, cyclic)
+                slant = np.concatenate(
+                    [np.zeros((energies.size, 1)),
+                     np.cumsum(np.maximum(0.5 * (extinction[:, 1:] + extinction[:, :-1])
+                                          * np.diff(y), 1.0e-10) / cosine, axis=1)],
+                    axis=1)
+                weight = np.exp(-slant)
+                channel = source[:, mode * n_mu + im, :]
+                result[:, im, ip] += np.sum(
+                    0.5 * (channel[:, 1:] * weight[:, 1:]
+                           + channel[:, :-1] * weight[:, :-1])
+                    * np.diff(slant, axis=1), axis=1)
+    return result

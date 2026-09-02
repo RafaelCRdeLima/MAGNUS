@@ -24,6 +24,8 @@ espalhamento coerente resolvido de uma vez, sem iteração lambda. Ver lá por q
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 from scipy.special import k0e
 
@@ -124,11 +126,58 @@ def _gaunt_table() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
 _GAUNT_LOG_U, _GAUNT_LOG_GAMMA, _GAUNT_VALUES = _gaunt_table()
 
 
+def _van_hoof_table():
+    """A tabela exata de van Hoof et al. (2014), se estiver no disco.
+
+    O portão do estágio 1 mediu o resíduo de +4–5% em temperatura de cor como
+    degenerado com a INCLINAÇÃO do Gaunt em frequência — e inclinação é
+    exatamente o que separa a aproximação de Elwert–Born da resposta exata.
+    Ver atmosphere_data/van_hoof/PROVENIENCIA.json. Sem o arquivo, o código cai
+    de volta no Elwert–Born e continua funcionando — mais um grau aproximado,
+    como era.
+    """
+    path = Path(__file__).resolve().parents[1] / "atmosphere_data" / "van_hoof" / "gauntff.dat"
+    if not path.is_file():
+        return None
+    numbers, header = [], []
+    for line in path.read_text().splitlines():
+        bare = line.split("#")[0].strip()
+        if not bare:
+            continue
+        if len(header) < 5:
+            header.append(float(bare.split()[0]))
+            if len(header) == 2:
+                header.append(float(bare.split()[1]) if len(bare.split()) > 1 else None)
+            continue
+        numbers.extend(float(v) for v in bare.split())
+    # Cabeçalho: magia, (n_gam2 n_u), inicio lg gam2, inicio lg u, passo.
+    n_gamma, n_u = 81, 146
+    start_gamma, start_u, step = -6.0, -16.0, 0.2
+    values = np.array(numbers[:n_gamma * n_u]).reshape(n_u, n_gamma)
+    return (start_u + step * np.arange(n_u),
+            start_gamma + step * np.arange(n_gamma), values)
+
+
+_VAN_HOOF = _van_hoof_table()
+
+
 def gaunt_free_free(energy_kev: np.ndarray, temperature: np.ndarray) -> np.ndarray:
-    """Fator de Gaunt livre-livre térmico, por interpolação na tabela acima."""
-    u = np.log10(np.clip(ERG_PER_KEV * energy_kev / (BOLTZMANN * temperature),
-                         1.0e-6, 1.0e4))
-    gamma = np.log10(np.clip(RYDBERG_K / temperature, 1.0e-5, 10.0 ** 1.5))
+    """Fator de Gaunt livre-livre térmico: van Hoof exato, Elwert-Born reserva."""
+    log_u = np.log10(np.clip(ERG_PER_KEV * energy_kev / (BOLTZMANN * temperature),
+                             1.0e-15, 1.0e12))
+    log_gamma = np.log10(np.clip(RYDBERG_K / temperature, 1.0e-5, 1.0e9))
+    if _VAN_HOOF is not None:
+        axis_u, axis_g, table = _VAN_HOOF
+        iu = np.clip(np.searchsorted(axis_u, log_u) - 1, 0, axis_u.size - 2)
+        ig = np.clip(np.searchsorted(axis_g, log_gamma) - 1, 0, axis_g.size - 2)
+        fu = np.clip((log_u - axis_u[iu]) / 0.2, 0.0, 1.0)
+        fg = np.clip((log_gamma - axis_g[ig]) / 0.2, 0.0, 1.0)
+        return ((1 - fu) * (1 - fg) * table[iu, ig]
+                + fu * (1 - fg) * table[iu + 1, ig]
+                + (1 - fu) * fg * table[iu, ig + 1]
+                + fu * fg * table[iu + 1, ig + 1])
+    u = np.clip(log_u, -6.0, 4.0)
+    gamma = np.clip(log_gamma, -5.0, 1.5)
     iu = np.clip(np.searchsorted(_GAUNT_LOG_U, u) - 1, 0, len(_GAUNT_LOG_U) - 2)
     ig = np.clip(np.searchsorted(_GAUNT_LOG_GAMMA, gamma) - 1, 0,
                  len(_GAUNT_LOG_GAMMA) - 2)

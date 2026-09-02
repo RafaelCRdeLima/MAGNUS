@@ -36,7 +36,11 @@ TABLE_ENERGIES = np.logspace(np.log10(0.03), np.log10(20.0), 160)
 
 def build(field_log: float, log_temperatures: list[float],
           log_gravities: list[float], theta_b_degrees: list[float] | None = None,
-          mu_nodes: int = 8, **kwargs) -> dict:
+          mu_nodes: int = 8, polarimetric: bool = False, **kwargs) -> dict:
+    """Com `polarimetric`, devolve também lg w POR MODO — duas tabelas no mesmo
+    formato cuja soma de 10^(lg w) reconstrói o total. É a saída para
+    polarimetria (IXPE e afins): os modos já vivem separados no solucionador, e
+    o custo de não jogá-los fora é zero."""
     theta_b_degrees = [0.0] if theta_b_degrees is None else theta_b_degrees
     field = 10.0 ** field_log
     ion = magnetizada.CYCLOTRON_E_PER_GAUSS * field * magnetizada.MASS_RATIO
@@ -44,8 +48,10 @@ def build(field_log: float, log_temperatures: list[float],
         [estrutura.energy_grid(1.0e-3, 60.0, 160),
          ion * (1.0 + np.linspace(-0.12, 0.12, 60))]))
     mu = None
-    values = np.zeros((len(log_temperatures), len(log_gravities), len(theta_b_degrees),
-                       mu_nodes, TABLE_ENERGIES.size))
+    shape = (len(log_temperatures), len(log_gravities), len(theta_b_degrees),
+             mu_nodes, TABLE_ENERGIES.size)
+    values = np.zeros(shape)
+    by_mode = np.zeros((2,) + shape) if polarimetric else None
     for it, log_t in enumerate(log_temperatures):
       for ig, log_g in enumerate(log_gravities):
         for ib, theta_deg in enumerate(theta_b_degrees):
@@ -68,12 +74,19 @@ def build(field_log: float, log_temperatures: list[float],
                 # continua devolvendo o corpo negro exato.
                 values[it, ig, ib, index] = np.log10(
                     np.clip(intensity / reference, 1.0e-30, 1.0e30))
+                if polarimetric:
+                    for mode in (0, 1):
+                        part = np.interp(TABLE_ENERGIES, solution["energies"],
+                                         solution["intensity_modes"][mode][:, index])
+                        by_mode[mode, it, ig, ib, index] = np.log10(
+                            np.clip(part / reference, 1.0e-30, 1.0e30))
             print(f"  lg T = {log_t:.2f}  lg g = {log_g:.2f}  theta_B = {theta_deg:4.1f}  "
                   f"fluxo {solution['flux_error']:.1e}  {solution['iterations']} it  "
                   f"{time.time() - started:.0f} s", flush=True)
     return {"log_t": log_temperatures, "log_g": log_gravities,
             "theta_b": theta_b_degrees, "mu": mu,
-            "log_e": np.log10(TABLE_ENERGIES), "log_w": values}
+            "log_e": np.log10(TABLE_ENERGIES), "log_w": values,
+            "log_w_modes": by_mode}
 
 
 def main() -> None:
@@ -86,15 +99,25 @@ def main() -> None:
     parser.add_argument("--saida", type=Path, default=ROOT / "build" / "estagio2.magnus")
     parser.add_argument("--nos-mu", type=int, default=8)
     parser.add_argument("--iteracoes", type=int, default=220)
+    parser.add_argument("--polarimetrico", action="store_true",
+                        help="grava também as tabelas por modo")
     arguments = parser.parse_args()
     table = build(arguments.campo,
                   [float(v) for v in arguments.temperaturas.split(",")],
                   [float(v) for v in arguments.gravidades.split(",")],
                   theta_b_degrees=[float(v) for v in arguments.angulos.split(",")],
-                  mu_nodes=arguments.nos_mu, iterations=arguments.iteracoes)
+                  mu_nodes=arguments.nos_mu, iterations=arguments.iteracoes,
+                  polarimetric=arguments.polarimetrico)
     formato.write(arguments.saida, table["log_t"], table["log_g"], table["theta_b"],
                   table["mu"], table["log_e"], table["log_w"])
     print(f"{arguments.saida}  ({arguments.saida.stat().st_size / 1e3:.0f} kB)")
+    if table["log_w_modes"] is not None:
+        for mode in (0, 1):
+            path = arguments.saida.with_name(arguments.saida.stem
+                                             + f"_modo{mode + 1}.magnus")
+            formato.write(path, table["log_t"], table["log_g"], table["theta_b"],
+                          table["mu"], table["log_e"], table["log_w_modes"][mode])
+            print(f"{path}  ({path.stat().st_size / 1e3:.0f} kB)")
 
 
 if __name__ == "__main__":

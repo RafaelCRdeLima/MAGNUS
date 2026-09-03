@@ -52,6 +52,8 @@ NSMAXG_FIELD_RANGE = (10.0, 13.9)
 MANIFEST = PULSARIS / "instrument_data" / "profiles" / "manifest.json"
 ABSORPTION = PULSARIS / "instrument_data" / "absorption" / "tbabs_wilm.csv"
 KEV_PER_MK = 0.08617333262145
+#: GM_sol/c² em km: u = 2·GM/(Rc²) = 2·(1,476625)·(M/M_sol)/R[km].
+_GM_SUN_C2_KM = 1.476625
 
 
 def read_events(path: Path) -> tuple[dict[str, str], list[tuple[float, float]]]:
@@ -424,6 +426,17 @@ class FitProblem:
         self.steps = [0.025, 0.12, 1.2, 2.0]
         self.initial = [float(request["mass"]), float(request["radius"]),
                         float(request["inclination"]), float(request.get("phaseOffset", 0.0))]
+        # Ajustar a COMPACIDADE u = 2GM/(Rc²) no lugar da massa: é u que o desvio
+        # de luz e o redshift constrangem, então (u, R) desemaranha o que (M, R)
+        # deixava degenerado — u fixado pela forma do pulso, R pela normalização
+        # do fluxo. O motor recebe M e R; a conversão u,R→M mora no worker_line.
+        self.fit_compactness = bool(request.get("fitCompactness", False))
+        if self.fit_compactness:
+            self.names[0] = "compactness"
+            self.bounds[0] = (0.05, 0.7)          # u físico de estrela de nêutrons
+            self.steps[0] = 0.01
+            self.initial[0] = (2.0 * _GM_SUN_C2_KM * self.initial[0]
+                               / self.initial[1])  # M inicial → u inicial
         self.spot_count = int(request["spotCount"])
         # Ligado por omissão: sem isto o R-hat não desce, por mais iterações
         # que se dê. Medido nesta observação, com 400 iterações: 9,19 sem a
@@ -713,7 +726,9 @@ class FitProblem:
 
     def worker_command(self) -> list[str]:
         p = self.profile
-        command = [str(ENGINE), "--fit-worker", "--mass", str(self.initial[0]),]
+        base_mass = (self.initial[0] * self.initial[1] / (2.0 * _GM_SUN_C2_KM)
+                     if self.fit_compactness else self.initial[0])
+        command = [str(ENGINE), "--fit-worker", "--mass", str(base_mass),]
         if self.atmosphere_table:
             command.extend(["--atmosphere-table", str(self.atmosphere_table),
                             "--magnetic-colatitude", str(self.magnetic_colatitude)])
@@ -768,7 +783,10 @@ class FitProblem:
         return command
 
     def worker_line(self, values: list[float]) -> str:
-        fields = [values[0], values[1], values[2], values[3]]
+        # Compacidade → massa: o motor recebe M. M = u·R/(2·GM_sol/c²).
+        mass0 = (values[0] * values[1] / (2.0 * _GM_SUN_C2_KM)
+                 if self.fit_compactness else values[0])
+        fields = [mass0, values[1], values[2], values[3]]
         for spot in self.unpack_spots(values):
             fields.extend((spot["theta"], spot["phi"] - values[3],
                            spot["radius"], spot["temperature"]))

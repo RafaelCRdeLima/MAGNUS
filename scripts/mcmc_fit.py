@@ -14,6 +14,7 @@ import concurrent.futures
 import csv
 import io
 import json
+import os
 import struct
 import math
 import queue
@@ -934,7 +935,9 @@ def draw_stretch(rng: random.Random, scale: float) -> float:
 
 
 def run_ensemble(problem: FitProblem, pool: WorkerPool, walkers: int, iterations: int,
-                 burn_in: int, seed: int, stretch_scale: float = 2.0) -> dict:
+                 burn_in: int, seed: int, stretch_scale: float = 2.0,
+                 checkpoint_path: str | None = None,
+                 checkpoint_every: int = 50) -> dict:
     """Goodman-Weare red/blue stretch move with parallel half-ensemble updates."""
     rng = random.Random(seed)
     dimensions = len(problem.names)
@@ -1022,9 +1025,30 @@ def run_ensemble(problem: FitProblem, pool: WorkerPool, walkers: int, iterations
                         replacement = rng.randrange(pulse_samples_seen)
                         if replacement < pulse_reservoir_size:
                             posterior_pulses[replacement] = pulses[walker].copy()
+        # CHECKPOINT à prova de crash: a cada `checkpoint_every` passos, grava o
+        # que já foi amostrado (atômico: .tmp + rename, para nunca deixar um
+        # arquivo meio-escrito). Um crash perde no máximo os últimos passos.
+        if (checkpoint_path and step_index >= burn_in
+                and (step_index - burn_in + 1) % checkpoint_every == 0):
+            _save_checkpoint(checkpoint_path, trajectories, trajectory_logps,
+                             problem.names, step_index - burn_in + 1)
     return {"trajectories": trajectories, "trajectory_logps": trajectory_logps,
             "acceptance": [count / max(1, total) for count in accepted],
             "posterior_pulses": posterior_pulses}
+
+
+def _save_checkpoint(path: str, trajectories, trajectory_logps, names,
+                     samples_per_walker: int) -> None:
+    """Grava as trajetórias amostradas até agora, de forma atômica."""
+    import numpy as _np
+    final = path if path.endswith(".npz") else path + ".npz"
+    tmp = final + ".tmp"
+    with open(tmp, "wb") as handle:
+        _np.savez_compressed(
+            handle, samples=_np.asarray(trajectories, dtype=_np.float32),
+            logps=_np.asarray(trajectory_logps, dtype=_np.float64),
+            names=_np.asarray(names), samples_per_walker=samples_per_walker)
+    os.replace(tmp, final)
 
 
 def main() -> None:
@@ -1054,7 +1078,9 @@ def main() -> None:
     pool = WorkerPool(problem, workers)
     try:
         result = run_ensemble(problem, pool, walkers, iterations, burn_in,
-                              seed, stretch_scale)
+                              seed, stretch_scale,
+                              checkpoint_path=request.get("checkpointPath"),
+                              checkpoint_every=int(request.get("checkpointEvery", 50)))
         all_samples = [sample for trajectory in result["trajectories"]
                        for sample in trajectory]
         all_logp = [value for trajectory in result["trajectory_logps"]

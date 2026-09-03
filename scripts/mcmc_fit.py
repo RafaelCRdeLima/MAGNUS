@@ -14,6 +14,7 @@ import concurrent.futures
 import csv
 import io
 import json
+import struct
 import math
 import queue
 import random
@@ -529,6 +530,15 @@ class FitProblem:
         # passar calado.
         self.atmosphere_table = request.get("atmosphereTable")
         self.magnetic_colatitude = float(request.get("magneticColatitude", 0.0))
+        # Tabela MAGNUSI2 (com eixo de B): habilita ajustar o campo pela própria
+        # atmosfera do MAGNUS, e a faixa vem do eixo da tabela.
+        self.atmosphere_field_range = None
+        if self.atmosphere_table:
+            with open(self.atmosphere_table, "rb") as _fh:
+                if _fh.read(8) == b"MAGNUSI2":
+                    _n = struct.unpack("<I", _fh.read(4))[0]
+                    _lb = struct.unpack(f"<{_n}f", _fh.read(4 * _n))
+                    self.atmosphere_field_range = (float(_lb[0]), float(_lb[-1]))
         if self.atmosphere_table and (self.fit_atmosphere or self.fit_beaming
                                       or self.atmosphere > 0.0):
             raise ValueError("a tabela de intensidade já carrega espectro e feixe; "
@@ -562,17 +572,23 @@ class FitProblem:
         # calculada. Isso é medida, não falha.
         self.fit_log_field = bool(request.get("fitMagneticField", False))
         if self.fit_log_field:
-            if not self.use_nsmaxg:
+            if self.atmosphere_field_range is not None:
+                field_range = self.atmosphere_field_range   # da tabela MAGNUSI2
+            elif self.use_nsmaxg:
+                field_range = NSMAXG_FIELD_RANGE
+            else:
                 raise ValueError(
-                    "ajustar o campo magnético só faz sentido com o espectro do "
-                    "NSMAXG ligado: é ele que depende de B de forma mensurável. "
-                    "Só com a anisotropia, B mal move a verossimilhança.")
+                    "ajustar o campo magnético precisa OU de uma tabela de "
+                    "atmosfera MAGNUSI2 (com eixo de B), OU do espectro do NSMAXG "
+                    "ligado — algo que dependa de B de forma mensurável. Só com "
+                    "a anisotropia, B mal move a verossimilhança.")
             self.names.append("logMagneticField")
-            self.bounds.append(NSMAXG_FIELD_RANGE)
+            self.bounds.append(field_range)
             self.steps.append(0.05)
-            start = math.log10(self.magnetic_field) if self.magnetic_field > 0 else 13.0
-            self.initial.append(min(max(start, NSMAXG_FIELD_RANGE[0] + 0.05),
-                                    NSMAXG_FIELD_RANGE[1] - 0.05))
+            start = math.log10(self.magnetic_field) if self.magnetic_field > 0 \
+                else 0.5 * (field_range[0] + field_range[1])
+            self.initial.append(min(max(start, field_range[0] + 0.02),
+                                    field_range[1] - 0.02))
 
         self.beaming2 = float(request.get("beaming2", 0.0))
         if self.fit_beaming:
@@ -700,6 +716,8 @@ class FitProblem:
         if self.atmosphere_table:
             command.extend(["--atmosphere-table", str(self.atmosphere_table),
                             "--magnetic-colatitude", str(self.magnetic_colatitude)])
+            if self.fit_log_field and self.atmosphere_field_range is not None:
+                command.append("--fit-log-field")
         command.extend([
                    "--radius", str(self.initial[1]),
                    "--distance", str(self.distance), "--period", str(self.period),

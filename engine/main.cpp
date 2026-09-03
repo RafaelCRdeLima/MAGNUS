@@ -98,6 +98,11 @@ struct Config {
     // opacidade. Sem os dois a atmosfera fica isotrópica, que é o modelo cinza
     // de antes — e ele não consegue fazer leque nenhum.
     double magnetic_field_g{0.0};
+    // Ajustar o campo B: quando ligado, o worker recebe lg B por avaliação e a
+    // tabela de atmosfera é interpolada no eixo de B (formato MAGNUSI2). Sem
+    // isso, B é fixo pela tabela. O bloco vem DEPOIS da atmosfera e ANTES do
+    // feixe na linha do worker — a mesma ordem do worker_line do mcmc_fit.
+    bool fit_log_field{false};
     std::string anisotropy_table;
     std::string nsmaxg_table;
     // Tabela de intensidade do MAGNUS: lg da razão para corpo negro, resolvida
@@ -336,6 +341,7 @@ Config parse_args(int argc, char** argv) {
         else if (key == "--fit-beaming") cfg.fit_beaming = true;
         else if (key == "--atmosphere") cfg.atmosphere_hardening = std::stod(value());
         else if (key == "--magnetic-field") cfg.magnetic_field_g = std::stod(value());
+        else if (key == "--fit-log-field") cfg.fit_log_field = true;
         else if (key == "--anisotropy-table") cfg.anisotropy_table = value();
         else if (key == "--nsmaxg-table") cfg.nsmaxg_table = value();
         else if (key == "--atmosphere-table") cfg.atmosphere_table = value();
@@ -859,7 +865,7 @@ struct NsmaxgTable {
 // X-PSI não tem — e sem ele dois pontos quentes em colatitudes diferentes
 // usariam o mesmo feixe, o que num dipolo é falso por dezenas de graus.
 struct AtmosphereTable {
-    std::vector<float> log_t, log_g, theta_b_deg, mu, log_e, log_w;
+    std::vector<float> log_b, log_t, log_g, theta_b_deg, mu, log_e, log_w;
 
     bool loaded() const { return !log_w.empty(); }
 
@@ -867,16 +873,24 @@ struct AtmosphereTable {
         std::ifstream input(path, std::ios::binary);
         if (!input) throw std::runtime_error("cannot open atmosphere table: " + path);
         char magic[8];
-        if (!input.read(magic, 8) || std::string(magic, 8) != "MAGNUSI1") {
+        input.read(magic, 8);
+        const std::string tag(magic, 8);
+        // MAGNUSI2 traz um eixo de B na frente (para ajustar o campo); MAGNUSI1
+        // é o formato de um campo só, tratado como eixo de B de UM ponto — o
+        // layout de memória é idêntico, e a interpolação 6D degenera nele.
+        const bool has_field_axis = (tag == "MAGNUSI2");
+        if (!has_field_axis && tag != "MAGNUSI1") {
             throw std::runtime_error("not a MAGNUS intensity table: " + path);
         }
+        log_b = has_field_axis ? NsmaxgTable::read_axis(input)
+                               : std::vector<float>{0.0f};
         log_t = NsmaxgTable::read_axis(input);
         log_g = NsmaxgTable::read_axis(input);
         theta_b_deg = NsmaxgTable::read_axis(input);
         mu = NsmaxgTable::read_axis(input);
         log_e = NsmaxgTable::read_axis(input);
-        const std::size_t total = log_t.size() * log_g.size() * theta_b_deg.size() *
-            mu.size() * log_e.size();
+        const std::size_t total = log_b.size() * log_t.size() * log_g.size() *
+            theta_b_deg.size() * mu.size() * log_e.size();
         if (total == 0) throw std::runtime_error("atmosphere table has an empty axis: " + path);
         log_w.resize(total);
         // O leitor de float é o mesmo do perfil de instrumento e reclama com a
@@ -895,40 +909,46 @@ struct AtmosphereTable {
     //: física fora do que foi calculado. Os pesos exatamente nulos são pulados,
     //: o que também é o que protege um eixo de um ponto só.
     double log_ratio(double energy_kev, double cos_emission, double theta_b,
-                     double log_t_value, double log_g_value) const {
+                     double log_t_value, double log_g_value,
+                     double log_b_value) const {
         if (!loaded()) return 0.0;
-        std::size_t it, ig, ib, im, ie;
-        double wt, wg, wb, wm, we;
+        std::size_t ifld, it, ig, ib, im, ie;
+        double wf, wt, wg, wb, wm, we;
+        NsmaxgTable::bracket(log_b, log_b_value, ifld, wf);
         NsmaxgTable::bracket(log_t, log_t_value, it, wt);
         NsmaxgTable::bracket(log_g, log_g_value, ig, wg);
         NsmaxgTable::bracket(theta_b_deg, theta_b, ib, wb);
         NsmaxgTable::bracket(mu, cos_emission, im, wm);
         NsmaxgTable::bracket(log_e, std::log10(std::max(1.0e-12, energy_kev)), ie, we);
-        const std::size_t ng = log_g.size(), nb = theta_b_deg.size(),
-                          nm = mu.size(), ne = log_e.size();
-        auto at = [&](std::size_t t, std::size_t g, std::size_t b,
+        const std::size_t nt = log_t.size(), ng = log_g.size(),
+                          nb = theta_b_deg.size(), nm = mu.size(), ne = log_e.size();
+        auto at = [&](std::size_t f, std::size_t t, std::size_t g, std::size_t b,
                       std::size_t m, std::size_t e) {
             return static_cast<double>(
-                log_w[((((t * ng + g) * nb + b) * nm + m) * ne) + e]);
+                log_w[((((((f * nt + t) * ng + g) * nb + b) * nm + m) * ne) + e)]);
         };
         double total = 0.0;
-        for (int dt = 0; dt < 2; ++dt) {
-            const double ft = dt ? wt : 1.0 - wt;
-            if (ft == 0.0) continue;
-            for (int dg = 0; dg < 2; ++dg) {
-                const double fg = ft * (dg ? wg : 1.0 - wg);
-                if (fg == 0.0) continue;
-                for (int db = 0; db < 2; ++db) {
-                    const double fb = fg * (db ? wb : 1.0 - wb);
-                    if (fb == 0.0) continue;
-                    for (int dm = 0; dm < 2; ++dm) {
-                        const double fm = fb * (dm ? wm : 1.0 - wm);
-                        if (fm == 0.0) continue;
-                        for (int de = 0; de < 2; ++de) {
-                            const double weight = fm * (de ? we : 1.0 - we);
-                            if (weight != 0.0) {
-                                total += weight *
-                                    at(it + dt, ig + dg, ib + db, im + dm, ie + de);
+        for (int df = 0; df < 2; ++df) {
+            const double ff = df ? wf : 1.0 - wf;
+            if (ff == 0.0) continue;
+            for (int dt = 0; dt < 2; ++dt) {
+                const double ft = ff * (dt ? wt : 1.0 - wt);
+                if (ft == 0.0) continue;
+                for (int dg = 0; dg < 2; ++dg) {
+                    const double fg = ft * (dg ? wg : 1.0 - wg);
+                    if (fg == 0.0) continue;
+                    for (int db = 0; db < 2; ++db) {
+                        const double fb = fg * (db ? wb : 1.0 - wb);
+                        if (fb == 0.0) continue;
+                        for (int dm = 0; dm < 2; ++dm) {
+                            const double fm = fb * (dm ? wm : 1.0 - wm);
+                            if (fm == 0.0) continue;
+                            for (int de = 0; de < 2; ++de) {
+                                const double weight = fm * (de ? we : 1.0 - we);
+                                if (weight != 0.0) {
+                                    total += weight * at(ifld + df, it + dt, ig + dg,
+                                                         ib + db, im + dm, ie + de);
+                                }
                             }
                         }
                     }
@@ -1785,7 +1805,7 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
                             emitted_energy, contribution.cos_emission,
                             contribution.theta_b_deg,
                             std::log10(std::max(1.0, contribution.temperature_mk * 1.0e6)),
-                            log_g_value));
+                            log_g_value, log_b_value));
                 } else if (use_nsmaxg) {
                     // Espectro do NSMAXG, feixe do modelo de dois modos. Cada
                     // um traz o que o outro não tem, e a forma angular é
@@ -2064,6 +2084,13 @@ int run_fit_worker(const Config& base) {
                     throw std::runtime_error("fit worker received a non-positive "
                                              "opacity ratio");
                 }
+            }
+            if (base.fit_log_field) {
+                double log_field{};
+                if (!(input >> log_field)) {
+                    throw std::runtime_error("fit worker expected lg B");
+                }
+                cfg.magnetic_field_g = std::pow(10.0, log_field);
             }
             if (base.fit_beaming) {
                 if (!(input >> cfg.beaming_a >> cfg.beaming_b)) {

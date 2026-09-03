@@ -57,6 +57,35 @@ from pathlib import Path
 import numpy as np
 
 MAGIC = b"MAGNUSI1"
+MAGIC_FIELD = b"MAGNUSI2"   # com eixo de B na frente, para AJUSTAR o campo
+
+
+def write_with_field(path: Path, log_b, log_t, log_g, theta_b_deg, mu, log_e,
+                     log_w) -> Path:
+    """Grava um MAGNUSI2: eixo de B na frente. `log_w` é (nB,nT,ng,nb,nmu,nE).
+
+    É o que o motor interpola quando o campo é parâmetro livre do ajuste. O
+    MAGNUSI1 (um campo só) é o caso de nB=1; o motor lê os dois.
+    """
+    axes = [np.asarray(a, dtype=np.float32)
+            for a in (log_b, log_t, log_g, theta_b_deg, mu, log_e)]
+    values = np.asarray(log_w, dtype=np.float32)
+    expected = tuple(len(a) for a in axes)
+    if values.shape != expected:
+        raise ValueError(f"lg w tem forma {values.shape}, esperada {expected}")
+    for name, axis in zip(("lg B", "lg T", "lg g", "theta_B", "mu", "lg E"), axes):
+        if len(axis) > 1 and not np.all(np.diff(axis) > 0):
+            raise ValueError(f"o eixo {name} não é estritamente crescente")
+    if not np.all(np.isfinite(values)):
+        raise ValueError("lg w tem valor não finito")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("wb") as handle:
+        handle.write(MAGIC_FIELD)
+        for axis in axes:
+            handle.write(struct.pack("<I", len(axis)))
+            handle.write(axis.astype("<f4").tobytes())
+        handle.write(values.astype("<f4").ravel(order="C").tobytes())
+    return path
 ROOT = Path(__file__).resolve().parents[1]
 
 

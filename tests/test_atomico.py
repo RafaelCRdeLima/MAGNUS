@@ -177,16 +177,41 @@ class TestForcasDeOscilador(unittest.TestCase):
             self.assertAlmostEqual(f_k0, f_rest, places=6)
 
 
+class TestTabelaPC03(unittest.TestCase):
+    """P1: a fração neutra EXATA do PC03 (Ioffe), que pegou o over-count."""
+
+    def test_reproduz_a_tabela(self) -> None:
+        # Interpolar num ponto tabelado devolve o próprio valor.
+        table = at._load_pc03(13.5)
+        it, ir = 14, 30
+        lg_t = float(table["log_t"][it]); lg_r = float(table["log_r"][ir])
+        lg_rho = lg_r + 3.0 * (lg_t - 6.0)
+        got = float(at.pc03_neutral_fraction(13.5, 10.0 ** lg_t, 10.0 ** lg_rho))
+        self.assertAlmostEqual(got / table["x_h"][it, ir], 1.0, places=3)
+
+    def test_ionizacao_por_pressao(self) -> None:
+        # x(H) sobe até ~fotosfera e desaba no denso (átomos esmagados).
+        f = [float(at.pc03_neutral_fraction(13.5, 1.0e6, r)) for r in (0.1, 1.0, 1.0e3)]
+        self.assertGreater(f[1], f[0])
+        self.assertGreater(f[1], f[2])
+
+    def test_usada_pela_opacidade(self) -> None:
+        # best_neutral_fraction usa o PC03 onde há tabela (lgB=13,5).
+        pc = float(at.pc03_neutral_fraction(13.5, 1.0e6, 1.0))
+        best = at.best_neutral_fraction(10.0 ** 13.5, 1.0e6, 1.0 / at._MASS_H)
+        self.assertAlmostEqual(best, pc, places=6)
+
+
 class TestOpacidadeLigadoLivre(unittest.TestCase):
     """P1: κ_bf de 1ª passada — magnitude hidrogênica, limiar alargado."""
 
     def test_domina_thomson_na_janela(self) -> None:
-        # Perto do limiar, mesmo poucos % de neutros tornam o ligado-livre
-        # o absorvedor dominante — muito acima de Thomson.
+        # Com a fração neutra EXATA do PC03 (uns %), o ligado-livre ainda domina
+        # Thomson na banda mole por uma ordem de grandeza ou mais.
         from atmosfera import estrutura
         n0 = 1.0 / at._MASS_H
-        k = float(at.bound_free_opacity(1.0e13, 1.0e6, n0, np.array([0.28]))[0])
-        self.assertGreater(k, 100.0 * estrutura.THOMSON_CM2_G)
+        k = float(at.bound_free_opacity(1.0e13, 1.0e6, n0, np.array([0.31]))[0])
+        self.assertGreater(k, 10.0 * estrutura.THOMSON_CM2_G)
 
     def test_pico_na_banda_mole(self) -> None:
         # O pico da opacidade atômica cai na banda mole (perto de E^(0)).
@@ -196,12 +221,15 @@ class TestOpacidadeLigadoLivre(unittest.TestCase):
         self.assertGreater(pico, 0.15)
         self.assertLess(pico, 0.45)
 
-    def test_cresce_com_a_densidade(self) -> None:
-        # Mais fundo (mais denso) recombina mais → mais opaco.
+    def test_ioniza_por_pressao_em_alta_densidade(self) -> None:
+        # A fração neutra do PC03 sobe até ~fotosfera e DESABA no denso (átomos
+        # esmagados pelo plasma). A opacidade atômica segue: máxima em ρ~1-10,
+        # colapsa em ρ~1e3 — a ionização por pressão, que a Saha inflada perdia.
         E = np.array([0.28])
-        ks = [float(at.bound_free_opacity(1.0e13, 1.0e6, r / at._MASS_H, E)[0])
-              for r in (0.1, 1.0, 10.0, 100.0)]
-        self.assertTrue(np.all(np.diff(ks) > 0.0))
+        k = lambda r: float(at.bound_free_opacity(1.0e13, 1.0e6,
+                                                  r / at._MASS_H, E)[0])
+        self.assertGreater(k(1.0), k(0.1))       # sobe até a fotosfera
+        self.assertGreater(k(1.0), k(1.0e3))     # e desaba no denso (pressão)
 
     def test_borda_mole_sem_degrau(self) -> None:
         # A ocupação removeu a borda espúria do corte cru: a opacidade abaixo

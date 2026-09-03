@@ -439,15 +439,32 @@ def bound_free_cross_section(field_g: float, temperature: float,
     return np.trapezoid(kernel * (pdf * optical)[None, :], K, axis=1)
 
 
+def best_neutral_fraction(field_g: float, temperature: float,
+                          proton_density_cm3: float) -> float:
+    """x(H) do PC03 (exato) quando há tabela do lgB; senão a Saha da 1ª passada.
+
+    A comparação com o PC03 mostrou que a Saha com ocupação superestima por
+    10-100×. Onde o Ioffe tabela o campo (lgB=13,0 e 13,5), usa-se o valor
+    exato; fora disso, a Saha aproximada como reserva.
+    """
+    log_field = np.log10(field_g)
+    try:
+        return float(pc03_neutral_fraction(
+            log_field, temperature, proton_density_cm3 * _MASS_H))
+    except (FileNotFoundError, OSError, KeyError, IndexError):
+        return neutral_fraction(field_g, temperature, proton_density_cm3)
+
+
 def bound_free_opacity(field_g: float, temperature: float,
                        proton_density_cm3: float,
                        photon_energy_kev: np.ndarray) -> np.ndarray:
     """κ_bf [cm²/g] do ligado-livre atômico: f_neutra n_0 σ_bf / ρ.
 
-    ρ = n_0 m_H, então κ_bf = f_neutra σ_bf / m_H — a densidade entra pela
-    fração neutra E pela ocupação (que molda σ_bf).
+    ρ = n_0 m_H, então κ_bf = f_neutra σ_bf / m_H. A fração neutra vem do PC03
+    (exata) onde há tabela; a σ_bf carrega a forma (limiar magneticamente
+    alargado, ocupação óptica).
     """
-    f_neutral = neutral_fraction(field_g, temperature, proton_density_cm3)
+    f_neutral = best_neutral_fraction(field_g, temperature, proton_density_cm3)
     sigma = bound_free_cross_section(field_g, temperature, photon_energy_kev,
                                      proton_density_cm3)
     return f_neutral * sigma / _MASS_H
@@ -511,3 +528,75 @@ def interpolate_atomic_opacity(table: np.ndarray, log_t_grid: np.ndarray,
     log_kappa = ((c00 * (1 - ft) + c10 * ft) * (1 - fr)
                  + (c01 * (1 - ft) + c11 * ft) * fr)
     return 10.0 ** log_kappa
+
+
+# --- Tabelas PC03 do Ioffe: a fração neutra e a Rosseland exatas -------------
+#
+# Potekhin & Chabrier 2003 (astro-ph/0212062), dados do Ioffe. Contêm o
+# resultado EXATO da minimização de energia livre — a fração neutra x(H) e as
+# opacidades de Rosseland paralela (K0) e perpendicular (K1) a B. A Saha da 1ª
+# passada com a probabilidade de ocupação superestimava x(H) por 10-100× (o
+# portão do próprio Potekhin pegou); aqui usa-se a tabela direto. NÃO há seções
+# monocromáticas — essas só no código do Potekhin. R = ρ/T6³, T6=T/1e6.
+
+import os as _os
+
+_PC03_DIR = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
+                          "atmosphere_data", "pc03_hmagnet")
+_PC03_CACHE: dict = {}
+
+
+def _load_pc03(log_field: float) -> dict:
+    """Lê hmag{lgB}.dat: grades lg T, lg R e mapas x(H), lg K0, lg K1."""
+    tag = f"{round(log_field, 1):.1f}".replace(".", "_")
+    if tag in _PC03_CACHE:
+        return _PC03_CACHE[tag]
+    path = _os.path.join(_PC03_DIR, f"hmag{tag}.dat")
+    log_t, blocks, current = [], [], None
+    with open(path, encoding="latin-1") as handle:
+        for line in handle:
+            f = line.split()
+            if len(f) == 2:                       # linha "lgT lgB"
+                try:
+                    current = []
+                    log_t.append(float(f[0])); blocks.append(current)
+                except ValueError:
+                    pass
+            elif len(f) >= 14 and current is not None:
+                try:
+                    current.append([float(v) for v in f])
+                except ValueError:
+                    pass
+    log_r = np.array([r[0] for r in blocks[0]])
+    xH = np.array([[r[8] for r in blk] for blk in blocks])     # (nT, nR)
+    k0 = np.array([[r[12] for r in blk] for blk in blocks])    # lg K0 (paralela)
+    k1 = np.array([[r[13] for r in blk] for blk in blocks])    # lg K1 (perp.)
+    table = {"log_t": np.array(log_t), "log_r": log_r,
+             "x_h": xH, "lg_k0": k0, "lg_k1": k1}
+    _PC03_CACHE[tag] = table
+    return table
+
+
+def _pc03_bilinear(table: dict, field: str, log_t: np.ndarray,
+                   log_rho: np.ndarray) -> np.ndarray:
+    """Bilinear de `field` em (lgT, lgR), com lgR = lgρ − 3(lgT−6)."""
+    lt_grid, lr_grid = table["log_t"], table["log_r"]
+    lt = np.clip(np.asarray(log_t, dtype=float), lt_grid[0], lt_grid[-1])
+    lr = np.clip(np.asarray(log_rho, dtype=float) - 3.0 * (lt - 6.0),
+                 lr_grid[0], lr_grid[-1])
+    it = np.clip(np.searchsorted(lt_grid, lt) - 1, 0, len(lt_grid) - 2)
+    ir = np.clip(np.searchsorted(lr_grid, lr) - 1, 0, len(lr_grid) - 2)
+    ft = (lt - lt_grid[it]) / (lt_grid[it + 1] - lt_grid[it])
+    fr = (lr - lr_grid[ir]) / (lr_grid[ir + 1] - lr_grid[ir])
+    g = table[field]
+    return ((g[it, ir] * (1 - ft) + g[it + 1, ir] * ft) * (1 - fr)
+            + (g[it, ir + 1] * (1 - ft) + g[it + 1, ir + 1] * ft) * fr)
+
+
+def pc03_neutral_fraction(log_field: float, temperature: np.ndarray,
+                          density_g_cm3: np.ndarray) -> np.ndarray:
+    """Fração neutra x(H) do PC03 (exata), interpolada em (T, ρ)."""
+    table = _load_pc03(log_field)
+    return _pc03_bilinear(table, "x_h", np.log10(np.asarray(temperature, float)),
+                          np.log10(np.maximum(np.asarray(density_g_cm3, float),
+                                              1.0e-30)))

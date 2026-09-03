@@ -336,3 +336,59 @@ def oscillator_strength_longitudinal(field_g: float,
         term2 = np.exp(-np.clip((b * x) ** (-beta), 0.0, 700.0)) \
             / (1.0 + 0.5 * np.sqrt(1.0 / x))
         return np.where(np.asarray(K) <= 0.0, f0, term1 + term2)
+
+
+# --- Opacidade ligado-livre (fotoionização), 1ª passada ----------------------
+#
+# κ_bf = n_H σ_bf, com n_H = f_neutra n_0 e σ_bf a seção de choque de
+# fotoionização do fundamental, MEDIADA sobre a distribuição térmica em K —
+# o que espalha o limiar (o alargamento magnético). A física nova está aqui;
+# a MAGNITUDE é de 1ª passada (ver PLANO.md, "A rota do ligado-livre"):
+#
+#   σ_bf(E; K) = σ₀ (ε(K)/E)³  para E ≥ ε(K),  0 abaixo               (Kramers)
+#
+# σ₀ = 6,3×10⁻¹⁸ cm² é a seção hidrogênica SEM campo no limiar, para a
+# polarização paralela a B (a que domina; a menos modificada pelo campo). O
+# REFINO, se o portão B pedir: trocar por σ^bf(ω,K,B) tabelado do PC03 (numérica
+# exata de PP97). Só o estado fundamental, só paralela — declarado.
+
+_SIGMA0_BF_CM2 = 6.30e-18      # seção hidrogênica no limiar (H sem campo)
+
+
+def bound_free_cross_section(field_g: float, temperature: float,
+                             photon_energy_kev: np.ndarray) -> np.ndarray:
+    """σ_bf(E) [cm²] por átomo neutro, mediada em K (limiar alargado).
+
+    ∫ p(K) σ₀ (ε(K)/E)³ Θ(E−ε(K)) dK. O degrau Θ liga cada átomo acima do SEU
+    limiar ε(K); a média sobre a distribuição térmica p(K) alarga a borda.
+
+    ARTEFATO DA 1ª PASSADA: como p(K) corta em K_c (só estados centrados), há um
+    limiar mínimo ε(K_c) abaixo do qual σ_bf=0 — uma borda espúria em ~0,20 keV.
+    Os estados DESCENTRADOS (K>K_c), com limiares menores, preencheriam a faixa
+    0,15-0,20 keV. É a mesma limitação do corte em K_c da fração neutra;
+    resolve-se com a probabilidade de ocupação (ver PLANO.md).
+    """
+    gamma = float(field_to_gamma(field_g))
+    e0 = float(ground_binding_at_rest(field_g, 0)) / RYDBERG_KEV
+    k_c = _table1_s0(gamma)["q0"] * np.sqrt(2.0 * _MASS_H_ME * e0)
+    K = np.linspace(1.0e-3, k_c, 2000)
+    eps = moving_binding(field_g, K, 0)                     # keV, limiar de cada K
+    pdf = thermal_pseudomomentum_pdf(field_g, temperature, K)
+    E = np.asarray(photon_energy_kev, dtype=float)[:, None]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        kernel = np.where(E >= eps[None, :],
+                          _SIGMA0_BF_CM2 * (eps[None, :] / E) ** 3, 0.0)
+    return np.trapezoid(kernel * pdf[None, :], K, axis=1)
+
+
+def bound_free_opacity(field_g: float, temperature: float,
+                       proton_density_cm3: float,
+                       photon_energy_kev: np.ndarray) -> np.ndarray:
+    """κ_bf [cm²/g] do ligado-livre atômico: f_neutra n_0 σ_bf / ρ.
+
+    ρ = n_0 m_H, então κ_bf = f_neutra σ_bf / m_H — independe de n_0 salvo pela
+    fração neutra (que sobe com a densidade).
+    """
+    f_neutral = neutral_fraction(field_g, temperature, proton_density_cm3)
+    sigma = bound_free_cross_section(field_g, temperature, photon_energy_kev)
+    return f_neutral * sigma / _MASS_H

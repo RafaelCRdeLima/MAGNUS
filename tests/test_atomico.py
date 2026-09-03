@@ -173,5 +173,39 @@ class TestForcasDeOscilador(unittest.TestCase):
             self.assertAlmostEqual(f_k0, f_rest, places=6)
 
 
+class TestOpacidadeLigadoLivre(unittest.TestCase):
+    """P1: κ_bf de 1ª passada — magnitude hidrogênica, limiar alargado."""
+
+    def test_domina_thomson_na_janela(self) -> None:
+        # Perto do limiar, mesmo poucos % de neutros tornam o ligado-livre
+        # o absorvedor dominante — muito acima de Thomson.
+        from atmosfera import estrutura
+        n0 = 1.0 / at._MASS_H
+        k = float(at.bound_free_opacity(1.0e13, 1.0e6, n0, np.array([0.28]))[0])
+        self.assertGreater(k, 100.0 * estrutura.THOMSON_CM2_G)
+
+    def test_pico_na_banda_mole(self) -> None:
+        # O pico da opacidade atômica cai na banda mole (perto de E^(0)).
+        E = np.linspace(0.05, 0.6, 300)
+        k = at.bound_free_opacity(1.0e13, 1.0e6, 1.0 / at._MASS_H, E)
+        pico = E[int(np.argmax(k))]
+        self.assertGreater(pico, 0.15)
+        self.assertLess(pico, 0.45)
+
+    def test_cresce_com_a_densidade(self) -> None:
+        # Mais fundo (mais denso) recombina mais → mais opaco.
+        E = np.array([0.28])
+        ks = [float(at.bound_free_opacity(1.0e13, 1.0e6, r / at._MASS_H, E)[0])
+              for r in (0.1, 1.0, 10.0, 100.0)]
+        self.assertTrue(np.all(np.diff(ks) > 0.0))
+
+    def test_zera_abaixo_do_limiar_minimo(self) -> None:
+        # Consequência declarada do corte em K_c: sem opacidade muito abaixo
+        # da banda (borda espúria; os estados descentrados a preencheriam).
+        k = float(at.bound_free_opacity(1.0e13, 1.0e6, 1.0 / at._MASS_H,
+                                        np.array([0.08]))[0])
+        self.assertEqual(k, 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()

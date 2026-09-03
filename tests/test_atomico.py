@@ -46,5 +46,36 @@ class TestHidrogenioMagnetizado(unittest.TestCase):
         self.assertTrue(np.all(np.diff(binding) > 0.0))
 
 
+class TestAtomoEmMovimento(unittest.TestCase):
+    """P1: E_0s0(K), Eqs.(6)-(8) — a origem do alargamento magnético."""
+
+    def test_K_zero_recupera_o_atomo_em_repouso(self) -> None:
+        # Âncora principal: em K=0 a energia é exatamente E^(0)(γ).
+        for log_field in (13.0, 13.5):
+            field = 10.0 ** log_field
+            movimento = at.moving_binding(field, 0.0)
+            repouso = at.ground_binding_at_rest(field, 0)
+            self.assertAlmostEqual(float(movimento), float(repouso), places=6)
+
+    def test_figura1_gamma1000_K1000(self) -> None:
+        # Âncora da Figura 1 do paper: em γ=1000, o fundamental cai de
+        # E^(0)=15,3 Ryd (K=0) para ~1-2 Ryd em K=1000. Este ponto está no
+        # ramo descentrado E^(2), sem ambiguidade de unidade.
+        field = 1000.0 * at.FIELD_GAMMA_G
+        e_k1000 = float(at.moving_binding(field, 1000.0)) / at.RYDBERG_KEV
+        self.assertGreater(e_k1000, 1.0)
+        self.assertLess(e_k1000, 2.0)
+
+    def test_cai_monotonicamente_com_K(self) -> None:
+        # A ligação só decresce com o pseudomomento (átomo se descentra).
+        for log_field in (13.0, 13.5):
+            field = 10.0 ** log_field
+            K = np.linspace(0.0, 3000.0, 200)
+            E = at.moving_binding(field, K)
+            self.assertTrue(np.all(np.diff(E) <= 1.0e-12))
+            # e cai a uma fração pequena de E^(0) no fim
+            self.assertLess(float(E[-1]) / float(E[0]), 0.2)
+
+
 if __name__ == "__main__":
     unittest.main()

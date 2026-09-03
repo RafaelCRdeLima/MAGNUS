@@ -76,3 +76,77 @@ def ground_binding_at_rest(field_g: np.ndarray | float, s: int = 0) -> np.ndarra
                    + p1 * np.log1p(p2 * np.sqrt(gamma)) ** 2)
     term2 = p3 * np.log1p(p4 * gamma ** p5) ** 2
     return (term1 + term2) * RYDBERG_KEV
+
+
+# --- O átomo EM MOVIMENTO: E_0s0(K), Eqs. (6)-(8) de Potekhin 1998 -----------
+#
+# A física decisiva do estágio 3. Um átomo que se move através de B ganha um
+# momento de dipolo, e a energia de ligação CAI com o pseudomomento transversal
+# K. Como os átomos têm uma distribuição de K (térmica), a linha de absorção
+# vira uma banda larga — o "alargamento magnético", ordens de grandeza acima do
+# Doppler, e a razão de as feições saírem sem borda.
+#
+#   |E^||(K)| = E^(1)(K)/[1+(K/Kc)^(1/α)] + E^(2)(K)/[1+(Kc/K)^(1/α)]   (6)
+#   E^(1)(K)  = E^(0) - K²/(2 m_eff + q1 K²/E^(0))                       (7)  centrado
+#   E^(2)(K)  = 2[r*² + r*^{3/2} + q2 r*]^{-1/2} Ryd                     (8)  descentrado
+#   r* = K/γ (u.a.),  Kc = q0 √(2 m_H E^(0)),  q1 = lg(γ/300) [s=0]
+#
+# Unidades (confirmadas no paper): E em Ryd, K em u.a. (ħ/a_B), massas em m_e,
+# e o termo cinético K²/(2m) sai DIRETO em Ryd (unidades de Rydberg).
+#
+# Table 1, LINHA s=0: [lg(m_eff/m_H), q0, α, q2] nos γ tabelados. A coluna E^(0)
+# foi conferida contra a Eq.10 (0,3%); estes parâmetros são interpolados em lg γ.
+_MASS_H_ME = 1836.15267            # m_H / m_e (próton + elétron, u.a. de massa)
+_TABLE1_S0_GAMMA = np.array([300., 600., 1000., 2000., 3000., 10000.])
+_TABLE1_S0 = {
+    "lg_meff": np.array([0.009, 0.042, 0.072, 0.141, 0.175, 0.319]),
+    "q0":      np.array([0.859, 0.811, 0.823, 0.850, 0.873, 1.019]),
+    # SUSPEITO: α=0,001 em γ=300 é outlier (vizinhos ~0,1) e faz a transição
+    # da Eq.(6) virar um degrau — v_max artificial de 1223 km/s ali. Cheira a
+    # typo de transcrição da Table 1. NÃO afeta nosso regime (lgB≥13 → γ≥4×10³,
+    # onde α≈0,17-0,19, limpo); fica marcado para o portão B / correção futura
+    # se alguém descer abaixo de γ~600.
+    "alpha":   np.array([0.001, 0.107, 0.117, 0.178, 0.191, 0.173]),
+    "q2":      np.array([0.102, 0.157, 0.189, 0.233, 0.244, 0.275]),
+}
+
+
+def _table1_s0(gamma: float) -> dict:
+    """Parâmetros da Table 1 (s=0) interpolados em lg γ (extrapola nas bordas)."""
+    lg = np.log10(gamma)
+    grid = np.log10(_TABLE1_S0_GAMMA)
+    return {k: float(np.interp(lg, grid, v)) for k, v in _TABLE1_S0.items()}
+
+
+def moving_binding(field_g: float, pseudomomentum: np.ndarray,
+                   s: int = 0) -> np.ndarray:
+    """|E_0s0(K)| em keV para o átomo em MOVIMENTO, pseudomomento K em u.a.
+
+    Só s=0 (o estado fundamental, que domina a opacidade) por ora. K é o
+    pseudomomento transversal em unidades atômicas; devolve a energia de ligação
+    em keV, caindo de E^(0) em K=0 para ~0 quando o átomo se descentra.
+    """
+    if s != 0:
+        raise NotImplementedError("por ora só o estado fundamental s=0")
+    gamma = float(field_to_gamma(field_g))
+    K = np.asarray(pseudomomentum, dtype=float)
+    e0 = float(ground_binding_at_rest(field_g, 0)) / RYDBERG_KEV     # Ryd
+    par = _table1_s0(gamma)
+    m_eff = _MASS_H_ME * 10.0 ** par["lg_meff"]                      # m_e
+    q0, alpha, q2 = par["q0"], par["alpha"], par["q2"]
+    q1 = np.log10(gamma / 300.0)                                     # s=0
+    k_c = q0 * np.sqrt(2.0 * _MASS_H_ME * e0)                        # u.a.
+
+    r_star = K / gamma
+    e1 = e0 - K ** 2 / (2.0 * m_eff + q1 * K ** 2 / e0)             # centrado (7)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        e2 = 2.0 * (r_star ** 2 + r_star ** 1.5 + q2 * r_star) ** -0.5  # (8)
+        # Pesos da Eq.(6). O expoente 1/α pode ser enorme (α~1e-3): calcula em
+        # log e satura, senão estoura. Em K=0 o termo descentrado é 0 (peso 0),
+        # mesmo com e2 -> inf: guarda-se explicitamente.
+        ratio = np.log(np.maximum(K, 1e-300) / k_c) / alpha
+        w_centered = 1.0 / (1.0 + np.exp(np.clip(ratio, -700, 700)))
+        e = np.where(K <= 0.0, e0,
+                     e1 * w_centered + np.where(np.isfinite(e2), e2, 0.0)
+                     * (1.0 - w_centered))
+    return e * RYDBERG_KEV

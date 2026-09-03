@@ -526,12 +526,23 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
         absorption_cyclic = cyclic_free_free(grid, density[None, :],
                                              temperature[None, :], field_g)  # (nE,nD,3)
         if atomic:
-            # κ_bf atômico na componente α=0 (paralela a B): é absorção com a
-            # polarização longitudinal, a que a transição π domina na banda mole.
+            # κ_bf atômico RESOLVIDO EM POLARIZAÇÃO. A fotoionização paralela a B
+            # (α=0) é a que calculamos; as componentes perpendiculares (α=±1) são
+            # a resposta de dipolo do elétron ligado ao campo, [E/(E±E_Be)]², que
+            # PP97 mostra fortemente SUPRIMIDA abaixo do cíclotron. Como E_Be=366
+            # keV em lgB=13,5, a banda mole (0,2 keV) está muito abaixo e a
+            # perpendicular é ~(E/E_Be)²~10⁻⁷ — quase nula. Em θ_B=0 só as
+            # circulares (α=±1) se propagam, então o ligado-livre atômico mal
+            # toca o raio vertical — a física, não uma escolha.
             kappa_bf = atomico.interpolate_atomic_opacity(
                 atomic_table, atomic_lt, atomic_lr,
                 np.log10(temperature), np.log10(np.maximum(density, 1.0e-30)))
+            e_be = CYCLOTRON_E_PER_GAUSS * field_g
+            factor_plus = (grid / (grid + e_be)) ** 2               # α=+1
+            factor_minus = (grid / (grid - e_be)) ** 2              # α=−1
             absorption_cyclic = absorption_cyclic.copy()
+            absorption_cyclic[:, :, 0] = absorption_cyclic[:, :, 0] + kappa_bf * factor_plus
+            absorption_cyclic[:, :, 1] = absorption_cyclic[:, :, 1] + kappa_bf * factor_minus
             absorption_cyclic[:, :, 2] = absorption_cyclic[:, :, 2] + kappa_bf
         # O espalhamento agora também é por profundidade: a ressonância do
         # próton carrega as larguras colisional e Doppler locais.

@@ -148,5 +148,30 @@ class TestAlargamentoMagnetico(unittest.TestCase):
         self.assertLess(centro, e0)
 
 
+class TestForcasDeOscilador(unittest.TestCase):
+    """P1: Eq.21 v3 (a do misprint corrigido), gabaritada pela Lyman-α."""
+
+    def test_limite_campo_nulo_e_lyman_alpha(self) -> None:
+        # Portão independente: γ→0 devolve 0,4162 (1s→2p do H sem campo),
+        # um número conhecido — valida a fórmula que teve o typo na v1-v2.
+        for transition in ("001_par", "010_plus"):
+            f0 = float(at.oscillator_strength_rest(1.0e-6, transition))
+            self.assertAlmostEqual(f0, 0.4162, places=3)
+
+    def test_longitudinal_domina_no_campo_forte(self) -> None:
+        # No campo forte a σ+ vai ao cíclotron e some; a π longitudinal domina.
+        for log_field in (13.0, 13.5):
+            f_par = float(at.oscillator_strength_rest(10.0 ** log_field, "001_par"))
+            f_plus = float(at.oscillator_strength_rest(10.0 ** log_field, "010_plus"))
+            self.assertGreater(f_par, 10.0 * f_plus)
+
+    def test_K_zero_recupera_f_em_repouso(self) -> None:
+        for log_field in (13.0, 13.5):
+            field = 10.0 ** log_field
+            f_k0 = float(at.oscillator_strength_longitudinal(field, np.array([0.0]))[0])
+            f_rest = float(at.oscillator_strength_rest(field, "001_par"))
+            self.assertAlmostEqual(f_k0, f_rest, places=6)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -285,3 +285,54 @@ def doppler_width_kev(field_g: float, temperature: float,
     """Largura Doppler ΔE_D = E √(kT/m_H c²), para comparar com o magnético."""
     kt_erg = estrutura.BOLTZMANN * temperature
     return line_energy_kev * np.sqrt(kt_erg / (_MASS_H * estrutura.LIGHT ** 2))
+
+
+# --- Forças de oscilador das transições principais (Potekhin 1998, Eq.21 v3) --
+#
+# Pesam as transições ligado-ligado e normalizam o ligado-livre (regra da soma).
+# Eq.21 é JUSTO a fórmula cujo misprint a v3 corrigiu — o alerta de typo do
+# usuário materializado. Portão independente: no limite γ→0 ambas devem dar
+# 0,4162, a força de oscilador Lyman-α (1s→2p) do H SEM campo — um número
+# conhecido, não uma tabela.
+#
+#   f(0) = (1 − 0,584/(1+u1 γ^u2)) (1+u3 γ)/(1+u4 γ^u5)                (21)
+#
+# f_001^|| : transição longitudinal (π), |000⟩→|001⟩ — DOMINA na banda mole.
+# f_010^+  : transição σ+, |000⟩→|010⟩ — some no campo forte (vai ao cíclotron).
+_OSC_U = {
+    "001_par": (2.64, 1.076, 6.0e-6, 0.247, 0.381),   # π longitudinal
+    "010_plus": (12.0, 1.43, 9.8e-5, 1.585, 0.713),   # σ+
+}
+_LYMAN_ALPHA_F = 0.4162    # 1s→2p do H sem campo — o gabarito de γ→0
+
+
+def oscillator_strength_rest(field_g: np.ndarray | float,
+                             transition: str = "001_par") -> np.ndarray:
+    """f(0)(γ) da transição (Eq.21 v3). γ→0 devolve 0,4162 (Lyman-α)."""
+    gamma = field_to_gamma(field_g)
+    u1, u2, u3, u4, u5 = _OSC_U[transition]
+    return ((1.0 - 0.584 / (1.0 + u1 * gamma ** u2))
+            * (1.0 + u3 * gamma) / (1.0 + u4 * gamma ** u5))
+
+
+def oscillator_strength_longitudinal(field_g: float,
+                                     pseudomomentum: np.ndarray) -> np.ndarray:
+    """f_001^||(K) da transição longitudinal (Eq.22-23, 300≤γ≤10⁴).
+
+    K→0 recupera f(0). É a força de oscilador da linha que domina a banda mole,
+    modulada pelo movimento do átomo.
+    """
+    gamma = float(field_to_gamma(field_g))
+    K = np.asarray(pseudomomentum, dtype=float)
+    e0 = float(ground_binding_at_rest(field_g, 0)) / RYDBERG_KEV
+    k_c = _table1_s0(gamma)["q0"] * np.sqrt(2.0 * _MASS_H_ME * e0)
+    f0 = float(oscillator_strength_rest(field_g, "001_par"))
+    a = 0.877 * np.log(13100.0 / gamma)
+    b = 0.89 - gamma / 17000.0
+    beta = 0.61 * (1.0 + 2410.0 / gamma) ** 1.5
+    x = np.maximum(K / k_c, 1.0e-12)      # piso evita overflow no ramo K=0
+    with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+        term1 = f0 * np.exp(-(a * x) ** 2)
+        term2 = np.exp(-np.clip((b * x) ** (-beta), 0.0, 700.0)) \
+            / (1.0 + 0.5 * np.sqrt(1.0 / x))
+        return np.where(np.asarray(K) <= 0.0, f0, term1 + term2)

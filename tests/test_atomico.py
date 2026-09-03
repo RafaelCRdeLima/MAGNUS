@@ -113,5 +113,40 @@ class TestEquilibrioDeIonizacao(unittest.TestCase):
         self.assertLess(f, 0.2)
 
 
+class TestAlargamentoMagnetico(unittest.TestCase):
+    """P1: o perfil da feição ligada, a assinatura sem borda do estágio 3."""
+
+    def test_distribuicao_termica_normalizada(self) -> None:
+        gamma = float(at.field_to_gamma(1.0e13))
+        e0 = float(at.ground_binding_at_rest(1.0e13, 0)) / at.RYDBERG_KEV
+        k_c = at._table1_s0(gamma)["q0"] * np.sqrt(2.0 * at._MASS_H_ME * e0)
+        K = np.linspace(0.0, k_c, 4000)
+        pdf = at.thermal_pseudomomentum_pdf(1.0e13, 1.0e6, K)
+        self.assertAlmostEqual(float(np.trapezoid(pdf, K)), 1.0, places=2)
+
+    def test_largura_supera_o_doppler_por_ordens(self) -> None:
+        # A marca do alargamento magnético: 10³-10⁴× o Doppler.
+        e0 = float(at.ground_binding_at_rest(1.0e13, 0))
+        E = np.linspace(0.001, e0 * 1.05, 800)
+        g = at.magnetic_broadening_profile(1.0e13, 1.0e6, E)
+        g = g / np.trapezoid(g, E)
+        cum = np.cumsum(g) * (E[1] - E[0])
+        largura = E[np.searchsorted(cum, 0.9)] - E[np.searchsorted(cum, 0.1)]
+        doppler = at.doppler_width_kev(1.0e13, 1.0e6, e0)
+        self.assertGreater(largura / doppler, 100.0)
+
+    def test_feicao_cai_na_janela_mole(self) -> None:
+        # O payoff físico: a feição alargada pousa em 0,15-0,3 keV, a janela
+        # onde o ajuste da RBS 1223 perdia verossimilhança.
+        e0 = float(at.ground_binding_at_rest(1.0e13, 0))
+        E = np.linspace(0.001, e0 * 1.05, 800)
+        g = at.magnetic_broadening_profile(1.0e13, 1.0e6, E)
+        centro = float(np.trapezoid(E * g, E) / np.trapezoid(g, E))
+        self.assertGreater(centro, 0.15)
+        self.assertLess(centro, 0.30)
+        # e o centro fica ABAIXO de E^(0) (átomos descentrados)
+        self.assertLess(centro, e0)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -229,3 +229,59 @@ def neutral_fraction(field_g: float, temperature: float,
     n_p = (-1.0 + np.sqrt(1.0 + 4.0 * c * n0)) / (2.0 * c)
     n_h = n0 - n_p
     return float(n_h / n0)
+
+
+# --- Alargamento magnético: o perfil da feição ligada ------------------------
+#
+# A assinatura do estágio 3. Um átomo com pseudomomento K tem energia de
+# ligação ε(K) MENOR que a em repouso. Como os átomos têm distribuição térmica
+# em K, a energia de qualquer feição presa ao fundamental (o LIMIAR de
+# fotoionização; as linhas Lyman magnéticas) se espalha sobre a FAIXA de ε(K) —
+# largura da ordem do próprio E^(0), 10³-10⁴× o Doppler, e sem borda nítida.
+# PC03: "resembles a reversed bound-free profile", sem Lorentziana explícita.
+#
+# Distribuição térmica: p(K) dK ∝ exp(ε(K)/kT) K dK (o mesmo integrando de
+# Z_w, Eq.50). O peso térmico é exp(−E_estado/kT) = exp(+ε/kT), ε>0 a ligação.
+
+def thermal_pseudomomentum_pdf(field_g: float, temperature: float,
+                               pseudomomentum: np.ndarray) -> np.ndarray:
+    """p(K) normalizada em [0, K_c]: a distribuição dos átomos sobre K."""
+    gamma = float(field_to_gamma(field_g))
+    kt_kev = estrutura.BOLTZMANN * temperature / estrutura.ERG_PER_KEV
+    e0 = float(ground_binding_at_rest(field_g, 0)) / RYDBERG_KEV
+    k_c = _table1_s0(gamma)["q0"] * np.sqrt(2.0 * _MASS_H_ME * e0)
+    K = np.asarray(pseudomomentum, dtype=float)
+    chi = moving_binding(field_g, K, 0)
+    weight = np.where(K <= k_c, np.exp(np.clip(chi / kt_kev, -700, 700)) * K, 0.0)
+    grid = np.linspace(0.0, k_c, 2000)
+    norm = np.trapezoid(np.exp(np.clip(moving_binding(field_g, grid, 0) / kt_kev,
+                                       -700, 700)) * grid, grid)
+    return weight / norm
+
+
+def magnetic_broadening_profile(field_g: float, temperature: float,
+                                photon_energy_kev: np.ndarray) -> np.ndarray:
+    """g(E) [1/keV]: distribuição da energia de LIMIAR ε(K) sobre os átomos.
+
+    O perfil do limiar de fotoionização magneticamente alargado. Como ε(K) é
+    monótona, g(E) = p(K)/|dε/dK|. Vai de ε(K_c) até E^(0), largo e liso.
+    """
+    gamma = float(field_to_gamma(field_g))
+    e0 = float(ground_binding_at_rest(field_g, 0)) / RYDBERG_KEV
+    k_c = _table1_s0(gamma)["q0"] * np.sqrt(2.0 * _MASS_H_ME * e0)
+    K = np.linspace(1.0e-3, k_c, 4000)
+    eps = moving_binding(field_g, K, 0)                 # keV, decrescente em K
+    pdf = thermal_pseudomomentum_pdf(field_g, temperature, K)
+    jac = np.abs(np.gradient(eps, K))                   # |dε/dK|
+    g_at_K = pdf / np.maximum(jac, 1.0e-300)            # g(ε(K))
+    # reamostra em E crescente (ε decresce em K, então inverte)
+    order = np.argsort(eps)
+    return np.interp(np.asarray(photon_energy_kev, dtype=float),
+                     eps[order], g_at_K[order], left=0.0, right=0.0)
+
+
+def doppler_width_kev(field_g: float, temperature: float,
+                      line_energy_kev: float) -> float:
+    """Largura Doppler ΔE_D = E √(kT/m_H c²), para comparar com o magnético."""
+    kt_erg = estrutura.BOLTZMANN * temperature
+    return line_energy_kev * np.sqrt(kt_erg / (_MASS_H * estrutura.LIGHT ** 2))

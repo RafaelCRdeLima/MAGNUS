@@ -95,7 +95,7 @@ class TestEquilibrioDeIonizacao(unittest.TestCase):
         rhos = np.array([1.0e-2, 1.0, 1.0e2, 1.0e4])
         f = [at.neutral_fraction(1.0e13, 1.0e6, r / at._MASS_H) for r in rhos]
         self.assertTrue(np.all(np.diff(f) > 0.0))
-        self.assertLess(f[0], 0.01)     # rarefeito: quase todo ionizado
+        self.assertLess(f[0], 0.2)      # rarefeito: minoria neutra
         self.assertGreater(f[-1], 0.5)  # denso: maioria neutra
 
     def test_cai_com_a_temperatura(self) -> None:
@@ -104,31 +104,36 @@ class TestEquilibrioDeIonizacao(unittest.TestCase):
         f = [at.neutral_fraction(1.0e13, T, 1.0 / at._MASS_H) for T in temps]
         self.assertTrue(np.all(np.diff(f) < 0.0))
 
+    def test_cresce_com_o_campo(self) -> None:
+        # Com a probabilidade de ocupação, a dependência em B fica CERTA (era
+        # plana no corte cru): campo mais forte liga mais, então mais neutro.
+        f = [at.neutral_fraction(10.0 ** lgB, 1.0e6, 1.0 / at._MASS_H)
+             for lgB in (12.5, 13.0, 13.5)]
+        self.assertTrue(np.all(np.diff(f) > 0.0))
+
     def test_fotosfera_parcialmente_ionizada(self) -> None:
         # No ponto da fotosfera da RBS 1223 (ρ~1, T~1e6, lgB=13), a fração
-        # neutra é de poucos % — pequena, mas não nula: o regime que imprime
-        # as feições atômicas na janela mole.
+        # neutra é de dezenas de % — o regime que imprime as feições atômicas.
         f = at.neutral_fraction(1.0e13, 1.0e6, 1.0 / at._MASS_H)
-        self.assertGreater(f, 1.0e-3)
-        self.assertLess(f, 0.2)
+        self.assertGreater(f, 0.05)
+        self.assertLess(f, 0.5)
 
 
 class TestAlargamentoMagnetico(unittest.TestCase):
     """P1: o perfil da feição ligada, a assinatura sem borda do estágio 3."""
 
+    N0 = 1.0 / at._MASS_H     # ρ = 1 g/cm³, a fotosfera
+
     def test_distribuicao_termica_normalizada(self) -> None:
-        gamma = float(at.field_to_gamma(1.0e13))
-        e0 = float(at.ground_binding_at_rest(1.0e13, 0)) / at.RYDBERG_KEV
-        k_c = at._table1_s0(gamma)["q0"] * np.sqrt(2.0 * at._MASS_H_ME * e0)
-        K = np.linspace(0.0, k_c, 4000)
-        pdf = at.thermal_pseudomomentum_pdf(1.0e13, 1.0e6, K)
+        K = at._k_grid(1.0e13, self.N0)     # a própria grade (cauda incluída)
+        pdf = at.thermal_pseudomomentum_pdf(1.0e13, 1.0e6, K, self.N0)
         self.assertAlmostEqual(float(np.trapezoid(pdf, K)), 1.0, places=2)
 
     def test_largura_supera_o_doppler_por_ordens(self) -> None:
         # A marca do alargamento magnético: 10³-10⁴× o Doppler.
         e0 = float(at.ground_binding_at_rest(1.0e13, 0))
         E = np.linspace(0.001, e0 * 1.05, 800)
-        g = at.magnetic_broadening_profile(1.0e13, 1.0e6, E)
+        g = at.magnetic_broadening_profile(1.0e13, 1.0e6, E, self.N0)
         g = g / np.trapezoid(g, E)
         cum = np.cumsum(g) * (E[1] - E[0])
         largura = E[np.searchsorted(cum, 0.9)] - E[np.searchsorted(cum, 0.1)]
@@ -136,16 +141,15 @@ class TestAlargamentoMagnetico(unittest.TestCase):
         self.assertGreater(largura / doppler, 100.0)
 
     def test_feicao_cai_na_janela_mole(self) -> None:
-        # O payoff físico: a feição alargada pousa em 0,15-0,3 keV, a janela
+        # O payoff físico: a feição alargada pousa na banda mole, a janela
         # onde o ajuste da RBS 1223 perdia verossimilhança.
         e0 = float(at.ground_binding_at_rest(1.0e13, 0))
         E = np.linspace(0.001, e0 * 1.05, 800)
-        g = at.magnetic_broadening_profile(1.0e13, 1.0e6, E)
+        g = at.magnetic_broadening_profile(1.0e13, 1.0e6, E, self.N0)
         centro = float(np.trapezoid(E * g, E) / np.trapezoid(g, E))
-        self.assertGreater(centro, 0.15)
-        self.assertLess(centro, 0.30)
-        # e o centro fica ABAIXO de E^(0) (átomos descentrados)
-        self.assertLess(centro, e0)
+        self.assertGreater(centro, 0.10)
+        self.assertLess(centro, 0.35)
+        self.assertLess(centro, e0)     # abaixo de E^(0) (átomos descentrados)
 
 
 class TestForcasDeOscilador(unittest.TestCase):
@@ -199,12 +203,20 @@ class TestOpacidadeLigadoLivre(unittest.TestCase):
               for r in (0.1, 1.0, 10.0, 100.0)]
         self.assertTrue(np.all(np.diff(ks) > 0.0))
 
-    def test_zera_abaixo_do_limiar_minimo(self) -> None:
-        # Consequência declarada do corte em K_c: sem opacidade muito abaixo
-        # da banda (borda espúria; os estados descentrados a preencheriam).
-        k = float(at.bound_free_opacity(1.0e13, 1.0e6, 1.0 / at._MASS_H,
-                                        np.array([0.08]))[0])
-        self.assertEqual(k, 0.0)
+    def test_borda_mole_sem_degrau(self) -> None:
+        # A ocupação removeu a borda espúria do corte cru: a opacidade abaixo
+        # da banda é NÃO-NULA (estados descentrados preenchem) mas MENOR que no
+        # pico — uma borda suave, não um degrau.
+        n0 = 1.0 / at._MASS_H
+        baixa = float(at.bound_free_opacity(1.0e13, 1.0e6, n0, np.array([0.08]))[0])
+        pico = float(at.bound_free_opacity(1.0e13, 1.0e6, n0, np.array([0.31]))[0])
+        self.assertGreater(baixa, 0.0)         # preenchida, sem degrau
+        self.assertLess(baixa, pico)           # mas menor que a feição
+
+    def test_aceita_energia_escalar(self) -> None:
+        # F1 da auditoria: não quebrar com energia escalar.
+        k = at.bound_free_opacity(1.0e13, 1.0e6, 1.0 / at._MASS_H, 0.28)
+        self.assertEqual(np.asarray(k).shape, (1,))
 
 
 if __name__ == "__main__":

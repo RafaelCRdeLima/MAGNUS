@@ -136,7 +136,9 @@ def moving_binding(field_g: float, pseudomomentum: np.ndarray,
     par = _table1_s0(gamma)
     m_eff = _MASS_H_ME * 10.0 ** par["lg_meff"]                      # m_e
     q0, alpha, q2 = par["q0"], par["alpha"], par["q2"]
-    q1 = np.log10(gamma / 300.0)                                     # s=0
+    # q1 = lg(γ/300) é definido para γ≥300; abaixo, ficar ≥0 evita o flip de
+    # sinal do denominador (F3 da auditoria). Nosso regime é γ≥4×10³.
+    q1 = max(0.0, np.log10(gamma / 300.0))                           # s=0
     k_c = q0 * np.sqrt(2.0 * _MASS_H_ME * e0)                        # u.a.
 
     r_star = K / gamma
@@ -162,15 +164,21 @@ def moving_binding(field_g: float, pseudomomentum: np.ndarray,
 #   n_H  = n_p n_e (λ_p λ_e (2π a_m²)² / λ_H³)[1−e^{−βℏω_cp}] Z_w e^Λ  (Eq.54)
 #   χ_sν(K) = |E^∥_sν(K)| − s ℏω_cp                              (Eq.45)
 #
-# APROXIMAÇÕES DA 1ª PASSADA (declaradas, pendentes do portão B / refino):
+# APROXIMAÇÕES DECLARADAS (pendentes do portão B):
 #   · só o estado fundamental s=ν=0 no Z_w (domina; excitados vêm depois);
 #   · gás ideal não-degenerado, elétron no nível de Landau fundamental → Λ≈0
-#     (ℏω_ce ~ 11,6·B₁₃ keV ≫ kT, então só o nível zero conta);
-#   · w≡1 e corte em K_c: a integral de Eq.50 DIVERGE no K grande (estados
-#     descentrados), regularizada no tratamento completo pela probabilidade de
-#     ocupação. Cortar nos estados CENTRADOS (K<K_c) é a 1ª passada; muda o
-#     comportamento assintótico de baixa densidade (PCS99: f∝n^{1/3} vs n^{1/2}),
-#     não a transição no regime da fotosfera.
+#     (ℏω_ce ~ 11,6·B₁₃ keV ≫ kT, então só o nível zero conta).
+#
+# A PROBABILIDADE DE OCUPAÇÃO regulariza os estados descentrados (o que antes
+# era um corte cru em K_c). A integral de Eq.50 divergiria no K grande porque
+# ali χ→0 (átomo quase livre): um átomo com pseudomomento K tem seus centros de
+# carga separados por r_c = (K/γ) a_B, e some quando r_c passa da distância
+# média entre partículas d = (3/4π n)^{1/3} — pressão-ionização / superposição
+# com o vizinho. Peso w(K) = exp[−(r_c/d)³] (Poisson: prob. de não haver
+# perturbador dentro de r_c). Vai a 1 para o átomo centrado (r_c≪d) e a 0 para o
+# descentrado, tornando a integral convergente E dando a dependência correta com
+# a densidade (PCS99: f∝n^{1/3} no limite diluído). O perturbador é a densidade
+# TOTAL n_0 (≈ n_p na fotosfera, onde f é de poucos %).
 
 _BOHR_CM = 5.29177210903e-9                    # a_B em cm
 _HBAR = estrutura.PLANCK / (2.0 * np.pi)       # erg s
@@ -184,23 +192,59 @@ def _thermal_wavelength(mass_g: float, temperature: float) -> float:
                                       * estrutura.BOLTZMANN * temperature)
 
 
-def _atomic_partition_ground(field_g: float, temperature: float) -> float:
-    """Z_00 (Eq.50) do estado fundamental, integrando K<K_c em u.a.
+def _interparticle_distance(density_cm3: float) -> float:
+    """d = (3/4π n)^{1/3} em cm — distância média entre perturbadores."""
+    return (3.0 / (4.0 * np.pi * density_cm3)) ** (1.0 / 3.0)
 
-    A conversão K_físico = K_ua·(ℏ/a_B) reduz o prefator a λ_H²/(2π a_B²), e a
-    integral fica adimensional em u.a. — só a energia de ligação (em keV) entra
-    no Boltzmann. χ = |E^∥| (s=0, o termo sℏω_cp é nulo).
+
+def _occupation(field_g: float, pseudomomentum: np.ndarray,
+                density_cm3: float) -> np.ndarray:
+    """w(K) = exp[−(r_c/d)³], r_c = (K/γ) a_B — a probabilidade de ocupação."""
+    gamma = float(field_to_gamma(field_g))
+    r_c = (np.asarray(pseudomomentum, dtype=float) / gamma) * _BOHR_CM
+    ratio = r_c / _interparticle_distance(density_cm3)
+    return np.exp(-np.clip(ratio ** 3, 0.0, 700.0))
+
+
+def _k_grid(field_g: float, density_cm3: float) -> np.ndarray:
+    """Grade em K: densa no pico térmico + cauda log até a ocupação zerar.
+
+    O corte cru em K_c virou o ponto onde w→0 (r_c ~ 2,4 d, w~1e-6); nunca menos
+    que cobrir bem a região centrada (3 K_c).
     """
     gamma = float(field_to_gamma(field_g))
+    e0 = float(ground_binding_at_rest(field_g, 0)) / RYDBERG_KEV
+    k_c = _table1_s0(gamma)["q0"] * np.sqrt(2.0 * _MASS_H_ME * e0)
+    k_occ = 2.4 * (_interparticle_distance(density_cm3) / _BOHR_CM) * gamma
+    k_max = max(3.0 * k_c, k_occ)
+    near = np.linspace(0.0, min(6.0 * k_c, k_max), 2000)
+    if k_max > near[-1] * 1.001:
+        far = np.logspace(np.log10(near[-1] + 1.0), np.log10(k_max), 1200)
+        return np.unique(np.concatenate([near, far]))
+    return near
+
+
+def _partition_integrand(field_g: float, temperature: float,
+                         density_cm3: float, K: np.ndarray) -> np.ndarray:
+    """w(K) exp(χ/kT) K — o integrando de Z_00 (Eq.50) com a ocupação."""
     kt_kev = estrutura.BOLTZMANN * temperature / estrutura.ERG_PER_KEV
+    chi = moving_binding(field_g, K, 0)                          # keV, = |E^∥|
+    boltz = np.exp(np.clip(chi / kt_kev, -700, 700))
+    return _occupation(field_g, K, density_cm3) * boltz * K
+
+
+def _atomic_partition_ground(field_g: float, temperature: float,
+                             density_cm3: float) -> float:
+    """Z_00 (Eq.50) do estado fundamental, com a probabilidade de ocupação.
+
+    A conversão K_físico = K_ua·(ℏ/a_B) reduz o prefator a λ_H²/(2π a_B²), e a
+    integral fica adimensional em u.a. A ocupação w(K) corta os descentrados —
+    a integral converge sem corte cru, e depende da densidade.
+    """
     lambda_h = _thermal_wavelength(_MASS_H, temperature)
     prefactor = lambda_h ** 2 / (2.0 * np.pi * _BOHR_CM ** 2)   # adimensional
-
-    e0 = float(ground_binding_at_rest(field_g, 0)) / RYDBERG_KEV
-    k_c = _table1_s0(gamma)["q0"] * np.sqrt(2.0 * _MASS_H_ME * e0)   # u.a.
-    K = np.linspace(0.0, k_c, 400)
-    chi = moving_binding(field_g, K, 0)                          # keV, = |E^∥|
-    integrand = np.exp(np.clip(chi / kt_kev, -700, 700)) * K
+    K = _k_grid(field_g, density_cm3)
+    integrand = _partition_integrand(field_g, temperature, density_cm3, K)
     return prefactor * float(np.trapezoid(integrand, K))
 
 
@@ -220,7 +264,7 @@ def neutral_fraction(field_g: float, temperature: float,
     lam_e = _thermal_wavelength(_MASS_E, temperature)
     lam_p = _thermal_wavelength(estrutura.PROTON_MASS, temperature)
     lam_h = _thermal_wavelength(_MASS_H, temperature)
-    z_w = _atomic_partition_ground(field_g, temperature)
+    z_w = _atomic_partition_ground(field_g, temperature, proton_density_cm3)
 
     # C = n_H/(n_p n_e), em cm³ (Eq.54 com e^Λ≈1)
     c = (lam_p * lam_e * (2.0 * np.pi * a_m2) ** 2 / lam_h ** 3
@@ -244,36 +288,39 @@ def neutral_fraction(field_g: float, temperature: float,
 # Z_w, Eq.50). O peso térmico é exp(−E_estado/kT) = exp(+ε/kT), ε>0 a ligação.
 
 def thermal_pseudomomentum_pdf(field_g: float, temperature: float,
-                               pseudomomentum: np.ndarray) -> np.ndarray:
-    """p(K) normalizada em [0, K_c]: a distribuição dos átomos sobre K."""
-    gamma = float(field_to_gamma(field_g))
-    kt_kev = estrutura.BOLTZMANN * temperature / estrutura.ERG_PER_KEV
-    e0 = float(ground_binding_at_rest(field_g, 0)) / RYDBERG_KEV
-    k_c = _table1_s0(gamma)["q0"] * np.sqrt(2.0 * _MASS_H_ME * e0)
+                               pseudomomentum: np.ndarray,
+                               proton_density_cm3: float) -> np.ndarray:
+    """p(K) normalizada: a distribuição dos átomos sobre K, com a ocupação.
+
+    p(K) ∝ w(K) exp(χ/kT) K — o mesmo integrando de Z_00. A normalização é sobre
+    a grade própria (cauda incluída), então ∫p dK numa grade que a cubra dá 1.
+    """
     K = np.asarray(pseudomomentum, dtype=float)
-    chi = moving_binding(field_g, K, 0)
-    weight = np.where(K <= k_c, np.exp(np.clip(chi / kt_kev, -700, 700)) * K, 0.0)
-    grid = np.linspace(0.0, k_c, 2000)
-    norm = np.trapezoid(np.exp(np.clip(moving_binding(field_g, grid, 0) / kt_kev,
-                                       -700, 700)) * grid, grid)
+    weight = _partition_integrand(field_g, temperature, proton_density_cm3, K)
+    grid = _k_grid(field_g, proton_density_cm3)
+    norm = np.trapezoid(_partition_integrand(field_g, temperature,
+                                             proton_density_cm3, grid), grid)
     return weight / norm
 
 
 def magnetic_broadening_profile(field_g: float, temperature: float,
-                                photon_energy_kev: np.ndarray) -> np.ndarray:
+                                photon_energy_kev: np.ndarray,
+                                proton_density_cm3: float) -> np.ndarray:
     """g(E) [1/keV]: distribuição da energia de LIMIAR ε(K) sobre os átomos.
 
     O perfil do limiar de fotoionização magneticamente alargado. Como ε(K) é
-    monótona, g(E) = p(K)/|dε/dK|. Vai de ε(K_c) até E^(0), largo e liso.
+    monótona, g(E) = p(K)/|dε/dK|. Com a ocupação, os estados descentrados
+    (limiares baixos) preenchem a faixa mole — sem a borda espúria do corte cru.
     """
-    gamma = float(field_to_gamma(field_g))
-    e0 = float(ground_binding_at_rest(field_g, 0)) / RYDBERG_KEV
-    k_c = _table1_s0(gamma)["q0"] * np.sqrt(2.0 * _MASS_H_ME * e0)
-    K = np.linspace(1.0e-3, k_c, 4000)
+    kt_kev = estrutura.BOLTZMANN * temperature / estrutura.ERG_PER_KEV
+    K = _k_grid(field_g, proton_density_cm3)
     eps = moving_binding(field_g, K, 0)                 # keV, decrescente em K
-    pdf = thermal_pseudomomentum_pdf(field_g, temperature, K)
+    pdf = thermal_pseudomomentum_pdf(field_g, temperature, K, proton_density_cm3)
+    # peso óptico (mesmo da seção de choque): é a feição OBSERVÁVEL, não a
+    # distribuição termodinâmica crua — que seria dominada pelos descentrados.
+    optical = eps ** 4 / (eps ** 4 + (2.0 * kt_kev) ** 4)
     jac = np.abs(np.gradient(eps, K))                   # |dε/dK|
-    g_at_K = pdf / np.maximum(jac, 1.0e-300)            # g(ε(K))
+    g_at_K = pdf * optical / np.maximum(jac, 1.0e-300)  # g(ε(K))
     # reamostra em E crescente (ε decresce em K, então inverte)
     order = np.argsort(eps)
     return np.interp(np.asarray(photon_energy_kev, dtype=float),
@@ -328,7 +375,10 @@ def oscillator_strength_longitudinal(field_g: float,
     k_c = _table1_s0(gamma)["q0"] * np.sqrt(2.0 * _MASS_H_ME * e0)
     f0 = float(oscillator_strength_rest(field_g, "001_par"))
     a = 0.877 * np.log(13100.0 / gamma)
-    b = 0.89 - gamma / 17000.0
+    # b>0 é preciso: base negativa a potência fracionária vira NaN (F2 da
+    # auditoria) para γ>15130. A fórmula vale até γ=10⁴; acima é extrapolação,
+    # e manter b num piso positivo evita o NaN silencioso.
+    b = max(1.0e-6, 0.89 - gamma / 17000.0)
     beta = 0.61 * (1.0 + 2410.0 / gamma) ** 1.5
     x = np.maximum(K / k_c, 1.0e-12)      # piso evita overflow no ramo K=0
     with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
@@ -347,38 +397,46 @@ def oscillator_strength_longitudinal(field_g: float,
 #
 #   σ_bf(E; K) = σ₀ (ε(K)/E)³  para E ≥ ε(K),  0 abaixo               (Kramers)
 #
-# σ₀ = 6,3×10⁻¹⁸ cm² é a seção hidrogênica SEM campo no limiar, para a
-# polarização paralela a B (a que domina; a menos modificada pelo campo). O
-# REFINO, se o portão B pedir: trocar por σ^bf(ω,K,B) tabelado do PC03 (numérica
-# exata de PP97). Só o estado fundamental, só paralela — declarado.
+# MAGNITUDE (achado A da auditoria): a seção NO LIMIAR escala como 1/ε. σ₀ é a
+# hidrogênica para limiar de 1 Ryd; para o átomo magnetizado (limiar ε~0,3 keV)
+# a seção é σ₀·(Ryd/ε), ~20× menor. A regra da soma confirmava que sem isso a
+# integral ficava ~16× inflada. Polarização paralela a B (a que domina; a menos
+# modificada pelo campo). O REFINO, se o portão B pedir: trocar por σ^bf(ω,K,B)
+# tabelado do PC03 (numérica exata de PP97). Só o fundamental, só paralela.
 
-_SIGMA0_BF_CM2 = 6.30e-18      # seção hidrogênica no limiar (H sem campo)
+_SIGMA0_BF_CM2 = 6.30e-18      # seção hidrogênica no limiar de 1 Ryd (H sem campo)
 
 
 def bound_free_cross_section(field_g: float, temperature: float,
-                             photon_energy_kev: np.ndarray) -> np.ndarray:
+                             photon_energy_kev: np.ndarray,
+                             proton_density_cm3: float) -> np.ndarray:
     """σ_bf(E) [cm²] por átomo neutro, mediada em K (limiar alargado).
 
-    ∫ p(K) σ₀ (ε(K)/E)³ Θ(E−ε(K)) dK. O degrau Θ liga cada átomo acima do SEU
-    limiar ε(K); a média sobre a distribuição térmica p(K) alarga a borda.
-
-    ARTEFATO DA 1ª PASSADA: como p(K) corta em K_c (só estados centrados), há um
-    limiar mínimo ε(K_c) abaixo do qual σ_bf=0 — uma borda espúria em ~0,20 keV.
-    Os estados DESCENTRADOS (K>K_c), com limiares menores, preencheriam a faixa
-    0,15-0,20 keV. É a mesma limitação do corte em K_c da fração neutra;
-    resolve-se com a probabilidade de ocupação (ver PLANO.md).
+    ∫ p(K) σ₀(Ryd/ε) (ε/E)³ Θ(E−ε) dK. Cada átomo tem limiar ε(K) e seção no
+    limiar σ₀·Ryd/ε(K); a média sobre p(K) (com a ocupação) alarga a borda e,
+    pelos estados descentrados, preenche a faixa mole sem borda espúria.
     """
-    gamma = float(field_to_gamma(field_g))
-    e0 = float(ground_binding_at_rest(field_g, 0)) / RYDBERG_KEV
-    k_c = _table1_s0(gamma)["q0"] * np.sqrt(2.0 * _MASS_H_ME * e0)
-    K = np.linspace(1.0e-3, k_c, 2000)
+    kt_kev = estrutura.BOLTZMANN * temperature / estrutura.ERG_PER_KEV
+    K = _k_grid(field_g, proton_density_cm3)
     eps = moving_binding(field_g, K, 0)                     # keV, limiar de cada K
-    pdf = thermal_pseudomomentum_pdf(field_g, temperature, K)
-    E = np.asarray(photon_energy_kev, dtype=float)[:, None]
+    pdf = thermal_pseudomomentum_pdf(field_g, temperature, K, proton_density_cm3)
+    # OCUPAÇÃO ÓPTICA (distinção de PC03): a ocupação termodinâmica conta todo
+    # estado ligado — certo para a fração neutra. Mas só os átomos ligados bem
+    # ACIMA do térmico são absorvedores ópticos DISCRETOS; os descentrados
+    # (ε≲kT) estão termicamente desfeitos e, sem esta supressão, formariam um
+    # pico espúrio de opacidade abaixo da janela (a distribuição termodinâmica é
+    # dominada por eles). Peso ε⁴/(ε⁴+(2kT)⁴): →1 bem ligado, →0 em ε≲2kT, com
+    # transição SUAVE (sem a borda dura do corte cru). Calibrado para o pico
+    # cair em E^(0), na janela, como a física manda. A forma exata é do
+    # tratamento de ocupação de PC03 (refino, se o portão B pedir).
+    optical = eps ** 4 / (eps ** 4 + (2.0 * kt_kev) ** 4)
+    E = np.atleast_1d(np.asarray(photon_energy_kev, dtype=float))[:, None]
+    # σ no limiar ∝ 1/ε (hidrogênico), tetada em σ₀ (não passa do pico hidrogênico).
+    sigma_threshold = _SIGMA0_BF_CM2 * np.minimum(RYDBERG_KEV / eps[None, :], 1.0)
     with np.errstate(divide="ignore", invalid="ignore"):
         kernel = np.where(E >= eps[None, :],
-                          _SIGMA0_BF_CM2 * (eps[None, :] / E) ** 3, 0.0)
-    return np.trapezoid(kernel * pdf[None, :], K, axis=1)
+                          sigma_threshold * (eps[None, :] / E) ** 3, 0.0)
+    return np.trapezoid(kernel * (pdf * optical)[None, :], K, axis=1)
 
 
 def bound_free_opacity(field_g: float, temperature: float,
@@ -386,9 +444,10 @@ def bound_free_opacity(field_g: float, temperature: float,
                        photon_energy_kev: np.ndarray) -> np.ndarray:
     """κ_bf [cm²/g] do ligado-livre atômico: f_neutra n_0 σ_bf / ρ.
 
-    ρ = n_0 m_H, então κ_bf = f_neutra σ_bf / m_H — independe de n_0 salvo pela
-    fração neutra (que sobe com a densidade).
+    ρ = n_0 m_H, então κ_bf = f_neutra σ_bf / m_H — a densidade entra pela
+    fração neutra E pela ocupação (que molda σ_bf).
     """
     f_neutral = neutral_fraction(field_g, temperature, proton_density_cm3)
-    sigma = bound_free_cross_section(field_g, temperature, photon_energy_kev)
+    sigma = bound_free_cross_section(field_g, temperature, photon_energy_kev,
+                                     proton_density_cm3)
     return f_neutral * sigma / _MASS_H

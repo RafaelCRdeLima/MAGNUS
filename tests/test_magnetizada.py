@@ -40,6 +40,27 @@ class TestModos(unittest.TestCase):
         ordinary = np.max(across[:, :, 2], axis=1)
         self.assertGreater(float(np.min(ordinary)), 0.999)
 
+    def test_vacuo_usa_theta_b(self) -> None:
+        """Regressão do bug: o ramo com vácuo do solve() ignorava o theta_b (usava
+        arccos(mu)), e as tabelas em theta_B != 0 saíam idênticas à de theta_B=0.
+        O ajudante vetorizado tem de dar amplitudes DIFERENTES para campo normal
+        e campo inclinado, no mesmo mu — e igualar mode_amplitudes com um ângulo."""
+        energies = np.array([0.15, 0.20, 0.30])
+        mu = np.array([0.6])
+        # theta_B = 0: um ângulo, arccos(mu); tem de bater com mode_amplitudes.
+        a0 = mg.vacuum_amplitudes_averaged(energies, np.arccos(mu), 1.0, 1.0e13)
+        scalar = mg.mode_amplitudes(energies, float(np.arccos(mu[0])), 1.0,
+                                    1.0e13, vacuum=True)
+        self.assertLess(float(np.max(np.abs(a0[:, 0] - scalar))), 1.0e-12)
+        # theta_B = 45: os ângulos raio-campo (média em phi) — DEVE diferir.
+        theta_b = np.radians(45.0)
+        phi = np.pi * (np.arange(8) + 0.5) / 8
+        cosine = float(mu[0]); sine = np.sqrt(1.0 - cosine ** 2)
+        with_field = cosine * np.cos(theta_b) + sine * np.sin(theta_b) * np.cos(phi)
+        angles = np.arccos(np.clip(np.concatenate([with_field, -with_field]), -1, 1))
+        a45 = mg.vacuum_amplitudes_averaged(energies, angles, 1.0, 1.0e13)
+        self.assertGreater(float(np.max(np.abs(a45[:, 0] - a0[:, 0]))), 1.0e-3)
+
     def test_aninhamento_em_campo_nulo(self) -> None:
         """Com B -> 0 os dois modos degeneram no livre-livre + Thomson do
         estágio 1, em qualquer ângulo. É o análogo do 'tabela de zeros devolve

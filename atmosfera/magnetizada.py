@@ -181,6 +181,49 @@ def mode_amplitudes(energy_kev: np.ndarray, theta_b: float, density: float,
     return amplitudes
 
 
+def vacuum_amplitudes_averaged(energy_kev: np.ndarray, angles: np.ndarray,
+                               density: np.ndarray, field_g: float) -> np.ndarray:
+    """|e_α^j|² mediada sobre `angles` (raio-CAMPO), com vácuo. (n_E, n_D, 2, 3).
+
+    A mesma matemática de `mode_amplitudes` (base cíclica, autoproblema com μ⁻¹
+    anisotrópico), VETORIZADA sobre ângulo E profundidade — um único lote de
+    autoproblemas 3×3 por μ, em vez do laço Python que tornava o ramo com vácuo
+    16× mais lento a theta_B≠0. `density` é o perfil (n_D,).
+    """
+    angles = np.atleast_1d(np.asarray(angles, dtype=float))
+    density = np.atleast_1d(np.asarray(density, dtype=float))
+    energy = np.atleast_1d(np.asarray(energy_kev, dtype=float))
+    plus, minus, along = dielectric_cyclic(energy[:, None], density[None, :],
+                                           field_g)                    # (nE,nD)
+    delta = vacuum_delta(field_g)
+    plus, minus, along = plus - 2.0 * delta, minus - 2.0 * delta, along + 5.0 * delta
+    inverse_mu = np.diag([1.0 - 2.0 * delta, 1.0 - 2.0 * delta, 1.0 - 6.0 * delta])
+
+    sin_t, cos_t = np.sin(angles), np.cos(angles)
+    cross = np.zeros((angles.size, 3, 3))
+    cross[:, 0, 1] = -cos_t; cross[:, 1, 0] = cos_t
+    cross[:, 1, 2] = -sin_t; cross[:, 2, 1] = sin_t
+    propagation = -np.einsum("aij,jk,akl->ail", cross, inverse_mu, cross)  # (nA,3,3)
+    root_half = 1.0 / np.sqrt(2.0)
+    to_cyclic = np.array([[root_half, 1j * root_half, 0.0],
+                          [root_half, -1j * root_half, 0.0],
+                          [0.0, 0.0, 1.0]])
+    cyclic = np.einsum("ij,ajk,kl->ail", to_cyclic, propagation.astype(complex),
+                       to_cyclic.conj().T)                              # (nA,3,3)
+    epsilon_diag = np.stack([plus, minus, along], axis=-1)            # (nE,nD,3)
+    # (nE,nD,nA,3,3): a matriz de propagação por ângulo, dividida por eps local
+    system = (cyclic[None, None, :, :, :]
+              / epsilon_diag[:, :, None, :, None])
+    values, vectors = np.linalg.eig(system)                          # batched
+    order = np.argsort(-np.abs(values), axis=-1)[..., :2]
+    order = np.take_along_axis(order, np.argsort(
+        np.take_along_axis(np.abs(values), order, axis=-1), axis=-1), axis=-1)
+    chosen = np.take_along_axis(vectors, order[..., None, :], axis=-1)  # (...,3,2)
+    chosen = np.moveaxis(chosen, -1, -2)                               # (...,2,3)
+    chosen = chosen / np.linalg.norm(chosen, axis=-1, keepdims=True)
+    return np.mean(np.abs(chosen) ** 2, axis=2)                       # (nE,nD,2,3)
+
+
 # --------------------------------------------------------------------------- #
 # As opacidades cíclicas
 
@@ -511,17 +554,33 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
         atomic_table = atomico.atomic_opacity_table(field_g, atomic_lt,
                                                     atomic_lr, energies)
 
+    # Ângulos raio-CAMPO por mu para o ramo com vácuo. O ramo vácuo recalcula as
+    # amplitudes por profundidade (a ressonância varia com a densidade) e, num
+    # bug antigo, usava arccos(mu) — o ângulo raio-NORMAL — ignorando theta_b:
+    # com vácuo, as tabelas em theta_B != 0 saíam TODAS iguais à de theta_B = 0.
+    # Aqui reproduz-se a geometria de channel_geometry (média em phi, ±mu
+    # simetrizado), mas com a densidade local. A theta_B = 0 é um ângulo só.
+    if abs(theta_b) < 1.0e-12:
+        vacuum_angles = [np.array([float(np.arccos(c))]) for c in mu]
+    else:
+        _phi = np.pi * (np.arange(8) + 0.5) / 8
+        vacuum_angles = []
+        for cosine in mu:
+            sine = np.sqrt(max(0.0, 1.0 - cosine ** 2))
+            with_field = cosine * np.cos(theta_b) + sine * np.sin(theta_b) * np.cos(_phi)
+            vacuum_angles.append(np.arccos(np.clip(
+                np.concatenate([with_field, -with_field]), -1.0, 1.0)))
+
     for step in range(iterations):
         density = pressure * estrutura.PROTON_MASS / (2.0 * estrutura.BOLTZMANN * temperature)
         if vacuum:
             stack = np.zeros((energies.size, 2 * mu.size, 3, y.size))
-            for im, cosine in enumerate(mu):
-                for id_ in range(y.size):
-                    block = mode_amplitudes(energies, float(np.arccos(cosine)),
-                                            max(float(density[id_]), 1.0e-30),
-                                            field_g, vacuum=True)
-                    stack[:, im, :, id_] = block[:, 0]
-                    stack[:, mu.size + im, :, id_] = block[:, 1]
+            safe_density = np.maximum(density, 1.0e-30)
+            for im in range(mu.size):                    # uma chamada por μ
+                block = vacuum_amplitudes_averaged(
+                    energies, vacuum_angles[im], safe_density, field_g)  # (nE,nD,2,3)
+                stack[:, im] = block[:, :, 0].transpose(0, 2, 1)       # (nE,3,nD)
+                stack[:, mu.size + im] = block[:, :, 1].transpose(0, 2, 1)
             amplitudes = stack
         absorption_cyclic = cyclic_free_free(grid, density[None, :],
                                              temperature[None, :], field_g)  # (nE,nD,3)

@@ -77,5 +77,41 @@ class TestAtomoEmMovimento(unittest.TestCase):
             self.assertLess(float(E[-1]) / float(E[0]), 0.2)
 
 
+class TestEquilibrioDeIonizacao(unittest.TestCase):
+    """P1: a fração neutra (Saha magnetizada, Eqs.50/54 de PCS99, 1ª passada).
+
+    Os portões são os limites físicos e a LOCALIZAÇÃO da transição — não um
+    valor absoluto, que depende do corte em K_c da 1ª passada.
+    """
+
+    def test_fica_entre_zero_e_um(self) -> None:
+        for rho in (1.0e-3, 1.0, 1.0e3):
+            f = at.neutral_fraction(1.0e13, 1.0e6, rho / at._MASS_H)
+            self.assertGreaterEqual(f, 0.0)
+            self.assertLessEqual(f, 1.0)
+
+    def test_cresce_com_a_densidade(self) -> None:
+        # Denso recombina, rarefeito ioniza — monotônico em ρ.
+        rhos = np.array([1.0e-2, 1.0, 1.0e2, 1.0e4])
+        f = [at.neutral_fraction(1.0e13, 1.0e6, r / at._MASS_H) for r in rhos]
+        self.assertTrue(np.all(np.diff(f) > 0.0))
+        self.assertLess(f[0], 0.01)     # rarefeito: quase todo ionizado
+        self.assertGreater(f[-1], 0.5)  # denso: maioria neutra
+
+    def test_cai_com_a_temperatura(self) -> None:
+        # Mais quente ioniza mais, a densidade fixa.
+        temps = 10.0 ** np.array([5.7, 6.0, 6.3, 6.6])
+        f = [at.neutral_fraction(1.0e13, T, 1.0 / at._MASS_H) for T in temps]
+        self.assertTrue(np.all(np.diff(f) < 0.0))
+
+    def test_fotosfera_parcialmente_ionizada(self) -> None:
+        # No ponto da fotosfera da RBS 1223 (ρ~1, T~1e6, lgB=13), a fração
+        # neutra é de poucos % — pequena, mas não nula: o regime que imprime
+        # as feições atômicas na janela mole.
+        f = at.neutral_fraction(1.0e13, 1.0e6, 1.0 / at._MASS_H)
+        self.assertGreater(f, 1.0e-3)
+        self.assertLess(f, 0.2)
+
+
 if __name__ == "__main__":
     unittest.main()

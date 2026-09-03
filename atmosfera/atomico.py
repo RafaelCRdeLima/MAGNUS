@@ -27,6 +27,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from . import estrutura
+
 #: γ = B / B_gamma, com B_gamma = 2,35×10⁹ G (campo atômico: ħω_c = 2 Ryd).
 #: O valor é m_e² e³ c / ħ³ = 2,3505×10⁹ G; Potekhin arredonda para 2,35e9.
 FIELD_GAMMA_G = 2.3505e9
@@ -150,3 +152,80 @@ def moving_binding(field_g: float, pseudomomentum: np.ndarray,
                      e1 * w_centered + np.where(np.isfinite(e2), e2, 0.0)
                      * (1.0 - w_centered))
     return e * RYDBERG_KEV
+
+
+# --- Equilíbrio de ionização: a fração neutra (Saha magnetizada, 1ª passada) --
+#
+# Quantos átomos sobrevivem a cada (T, ρ, B). Normaliza toda a opacidade
+# atômica. FONTE: Potekhin, Chabrier & Shibanov 1999 (astro-ph/9907006),
+#   Z_sν = (λ_H²/2πℏ²) ∫ w_sν(K) exp(βχ_sν(K)) K dK              (Eq.50)
+#   n_H  = n_p n_e (λ_p λ_e (2π a_m²)² / λ_H³)[1−e^{−βℏω_cp}] Z_w e^Λ  (Eq.54)
+#   χ_sν(K) = |E^∥_sν(K)| − s ℏω_cp                              (Eq.45)
+#
+# APROXIMAÇÕES DA 1ª PASSADA (declaradas, pendentes do portão B / refino):
+#   · só o estado fundamental s=ν=0 no Z_w (domina; excitados vêm depois);
+#   · gás ideal não-degenerado, elétron no nível de Landau fundamental → Λ≈0
+#     (ℏω_ce ~ 11,6·B₁₃ keV ≫ kT, então só o nível zero conta);
+#   · w≡1 e corte em K_c: a integral de Eq.50 DIVERGE no K grande (estados
+#     descentrados), regularizada no tratamento completo pela probabilidade de
+#     ocupação. Cortar nos estados CENTRADOS (K<K_c) é a 1ª passada; muda o
+#     comportamento assintótico de baixa densidade (PCS99: f∝n^{1/3} vs n^{1/2}),
+#     não a transição no regime da fotosfera.
+
+_BOHR_CM = 5.29177210903e-9                    # a_B em cm
+_HBAR = estrutura.PLANCK / (2.0 * np.pi)       # erg s
+_MASS_E = estrutura.ELECTRON_REST / estrutura.LIGHT ** 2   # g
+_MASS_H = estrutura.PROTON_MASS + _MASS_E      # g (próton + elétron)
+
+
+def _thermal_wavelength(mass_g: float, temperature: float) -> float:
+    """λ = h/√(2π m kT) em cm (comprimento de de Broglie térmico)."""
+    return estrutura.PLANCK / np.sqrt(2.0 * np.pi * mass_g
+                                      * estrutura.BOLTZMANN * temperature)
+
+
+def _atomic_partition_ground(field_g: float, temperature: float) -> float:
+    """Z_00 (Eq.50) do estado fundamental, integrando K<K_c em u.a.
+
+    A conversão K_físico = K_ua·(ℏ/a_B) reduz o prefator a λ_H²/(2π a_B²), e a
+    integral fica adimensional em u.a. — só a energia de ligação (em keV) entra
+    no Boltzmann. χ = |E^∥| (s=0, o termo sℏω_cp é nulo).
+    """
+    gamma = float(field_to_gamma(field_g))
+    kt_kev = estrutura.BOLTZMANN * temperature / estrutura.ERG_PER_KEV
+    lambda_h = _thermal_wavelength(_MASS_H, temperature)
+    prefactor = lambda_h ** 2 / (2.0 * np.pi * _BOHR_CM ** 2)   # adimensional
+
+    e0 = float(ground_binding_at_rest(field_g, 0)) / RYDBERG_KEV
+    k_c = _table1_s0(gamma)["q0"] * np.sqrt(2.0 * _MASS_H_ME * e0)   # u.a.
+    K = np.linspace(0.0, k_c, 400)
+    chi = moving_binding(field_g, K, 0)                          # keV, = |E^∥|
+    integrand = np.exp(np.clip(chi / kt_kev, -700, 700)) * K
+    return prefactor * float(np.trapezoid(integrand, K))
+
+
+def neutral_fraction(field_g: float, temperature: float,
+                     proton_density_cm3: float) -> float:
+    """Fração neutra f_H = n_H/(n_H+n_p) do H puro em (T, n_total, B).
+
+    `proton_density_cm3` é a densidade TOTAL de prótons (livres + ligados),
+    n_0 = ρ/m_H. Resolve a Saha (Eq.54) com n_e = n_p (neutralidade) e
+    n_p + n_H = n_0: n_H = C n_p², logo n_p = (−1+√(1+4 C n_0))/(2C).
+    """
+    kt_erg = estrutura.BOLTZMANN * temperature
+    a_m2 = _BOHR_CM ** 2 / float(field_to_gamma(field_g))         # a_m² = a_B²/γ
+    # ℏω_cp = ℏ²/(m_p a_m²), do próprio comprimento magnético (sem depender de
+    # magnetizada.py). Confere: 0,063 keV em B=10¹³ G (cíclotron do próton).
+    beta_hw_cp = _HBAR ** 2 / (estrutura.PROTON_MASS * a_m2) / kt_erg
+    lam_e = _thermal_wavelength(_MASS_E, temperature)
+    lam_p = _thermal_wavelength(estrutura.PROTON_MASS, temperature)
+    lam_h = _thermal_wavelength(_MASS_H, temperature)
+    z_w = _atomic_partition_ground(field_g, temperature)
+
+    # C = n_H/(n_p n_e), em cm³ (Eq.54 com e^Λ≈1)
+    c = (lam_p * lam_e * (2.0 * np.pi * a_m2) ** 2 / lam_h ** 3
+         * -np.expm1(-beta_hw_cp) * z_w)
+    n0 = proton_density_cm3
+    n_p = (-1.0 + np.sqrt(1.0 + 4.0 * c * n0)) / (2.0 * c)
+    n_h = n0 - n_p
+    return float(n_h / n0)

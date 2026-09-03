@@ -594,6 +594,43 @@ class FitProblem:
             self.steps.append(max(1.0e-4, 0.02 * max(self.nh, 0.05)))
             self.initial.append(self.nh)
 
+        # Overrides por requisição, aplicados DEPOIS de o vetor estar montado —
+        # assim pegam qualquer parâmetro pelo nome, sem depender da posição.
+        #
+        # `priors`: {nome: [lo, hi]} estreita (ou alarga) a caixa de um
+        #  parâmetro. Uso: kT nasce com priori (0,01, 5) keV, larga demais para
+        #  uma XDINS de ~0,1 keV — a posteriori ocupa só o fundo dela e at_bound
+        #  dispara um falso "lower". Estreitar para ~(0,03, 0,6) tira o alarme
+        #  falso sem cortar o valor físico.
+        for name, (lo, hi) in dict(request.get("priors", {})).items():
+            if name not in self.names:
+                raise ValueError(f"priors: parâmetro '{name}' não existe")
+            index = self.names.index(name)
+            self.bounds[index] = (float(lo), float(hi))
+            self.initial[index] = min(hi, max(lo, self.initial[index]))
+            self.steps[index] = min(self.steps[index], 0.25 * (hi - lo))
+
+        # `fixed`: {nome: valor} CONGELA um parâmetro. Não removemos do vetor
+        #  (isso deslocaria o protocolo posicional do worker_line); em vez
+        #  disso, damos a mesma constante a TODOS os caminhantes e passo zero.
+        #  O passo de esticamento de Goodman-Weare propõe X_j + z (X_i − X_j):
+        #  se a dimensão é idêntica em todo o enxame, X_i − X_j = 0 e ela nunca
+        #  se move. Fica exatamente fixa, in_prior passa, e como a posteriori é
+        #  um pico no MEIO da caixinha, at_bound não a marca. Padrão para
+        #  ajuste de espectro de atmosfera: M e R vêm de vínculos independentes,
+        #  não do pulso, e soltá-los aqui só criava modos e encostava a massa
+        #  no limite inferior (medido: 6 de 11 parâmetros no limite).
+        self.frozen = {}
+        for name, value in dict(request.get("fixed", {})).items():
+            if name not in self.names:
+                raise ValueError(f"fixed: parâmetro '{name}' não existe")
+            index = self.names.index(name)
+            value = float(value)
+            self.bounds[index] = (value - 1.0e-6, value + 1.0e-6)
+            self.initial[index] = value
+            self.steps[index] = 0.0
+            self.frozen[name] = value
+
     def _bin_background(self, background) -> list[float]:
         """Taxa de fundo por bin de energia, em contagens por segundo e por keV.
 
@@ -909,15 +946,21 @@ def run_ensemble(problem: FitProblem, pool: WorkerPool, walkers: int, iterations
             pulses[index] = pulse
     # O enxame tem de gerar as N direções ANTES de começar: depois é tarde,
     # porque o passo de esticamento nunca sai da envoltória afim inicial.
+    # Os parâmetros DELIBERADAMENTE fixos (request "fixed") são congelados de
+    # propósito — não contam como degeneração acidental, que é o que esta
+    # checagem existe para pegar. Descontá-los, senão a fixação legítima de M,R
+    # dispararia o próprio guarda que protege contra congelamento não intencional.
+    frozen = len(getattr(problem, "frozen", {}))
     rank = affine_rank(states)
-    degenerate_axes = dimensions - rank
+    degenerate_axes = (dimensions - frozen) - rank
     if degenerate_axes > 0:
         raise RuntimeError(
-            f"o enxame inicial gera só {rank} das {dimensions} direções do "
-            f"espaço de parâmetros, e o passo de esticamento nunca sai da "
-            f"envoltória afim onde nasce: {degenerate_axes} parâmetro(s) "
-            f"ficariam congelados a corrida inteira, com R-hat reportado como "
-            f"1,00. Aumente o número de caminhantes ou afrouxe a priori.")
+            f"o enxame inicial gera só {rank} das {dimensions - frozen} "
+            f"direções livres do espaço de parâmetros, e o passo de "
+            f"esticamento nunca sai da envoltória afim onde nasce: "
+            f"{degenerate_axes} parâmetro(s) ficariam congelados a corrida "
+            f"inteira, com R-hat reportado como 1,00. Aumente o número de "
+            f"caminhantes ou afrouxe a priori.")
 
     trajectories: list[list[list[float]]] = [[] for _ in range(walkers)]
     trajectory_logps: list[list[float]] = [[] for _ in range(walkers)]

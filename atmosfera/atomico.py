@@ -451,3 +451,63 @@ def bound_free_opacity(field_g: float, temperature: float,
     sigma = bound_free_cross_section(field_g, temperature, photon_energy_kev,
                                      proton_density_cm3)
     return f_neutral * sigma / _MASS_H
+
+
+def bound_free_opacity_profile(field_g: float, temperatures: np.ndarray,
+                               densities_g_cm3: np.ndarray,
+                               energies: np.ndarray) -> np.ndarray:
+    """κ_bf [cm²/g] em (nE, nD) sobre um perfil de atmosfera.
+
+    `densities_g_cm3` é a densidade de MASSA ρ (g/cm³); converte para
+    n_0 = ρ/m_H. É o que o solucionador soma à componente α=0 (paralela a B) da
+    absorção cíclica. Loop em profundidade (a grade em K depende da densidade).
+    """
+    T = np.atleast_1d(np.asarray(temperatures, dtype=float))
+    n0 = np.atleast_1d(np.asarray(densities_g_cm3, dtype=float)) / _MASS_H
+    E = np.asarray(energies, dtype=float)
+    out = np.empty((E.size, T.size))
+    for d in range(T.size):
+        out[:, d] = bound_free_opacity(field_g, float(T[d]),
+                                       float(max(n0[d], 1.0e-30)), E)
+    return out
+
+
+def atomic_opacity_table(field_g: float, log_t_grid: np.ndarray,
+                         log_rho_grid: np.ndarray,
+                         energies: np.ndarray) -> np.ndarray:
+    """κ_bf[nE, nT, nρ] pré-computada — cara, roda UMA vez fora do laço.
+
+    O solucionador tabula em (lgT, lgρ) e interpola por iteração, porque o
+    perfil por profundidade custa ~2 s e recalculá-lo a cada passo dobraria o
+    tempo do solve. κ_bf varia devagar com T,ρ, então a interpolação basta.
+    """
+    lt = np.atleast_1d(np.asarray(log_t_grid, dtype=float))
+    lr = np.atleast_1d(np.asarray(log_rho_grid, dtype=float))
+    E = np.asarray(energies, dtype=float)
+    # Guarda lg(κ_bf): κ varia por ordens de grandeza (borda de fotoionização),
+    # e interpolar em linear dava 115% de erro. O piso mapeia κ=0 (abaixo do
+    # limiar) para um lg muito negativo, que a exp devolve a ~0.
+    table = np.full((E.size, lt.size, lr.size), -300.0)
+    for it in range(lt.size):
+        for ir in range(lr.size):
+            kappa = bound_free_opacity(field_g, 10.0 ** lt[it],
+                                       10.0 ** lr[ir] / _MASS_H, E)
+            table[:, it, ir] = np.log10(np.maximum(kappa, 1.0e-300))
+    return table
+
+
+def interpolate_atomic_opacity(table: np.ndarray, log_t_grid: np.ndarray,
+                               log_rho_grid: np.ndarray, log_t: np.ndarray,
+                               log_rho: np.ndarray) -> np.ndarray:
+    """Bilinear de lg(κ_bf) em (lgT, lgρ) por profundidade → κ_bf (nE, nD)."""
+    lt = np.clip(np.asarray(log_t, dtype=float), log_t_grid[0], log_t_grid[-1])
+    lr = np.clip(np.asarray(log_rho, dtype=float), log_rho_grid[0], log_rho_grid[-1])
+    it = np.clip(np.searchsorted(log_t_grid, lt) - 1, 0, len(log_t_grid) - 2)
+    ir = np.clip(np.searchsorted(log_rho_grid, lr) - 1, 0, len(log_rho_grid) - 2)
+    ft = (lt - log_t_grid[it]) / (log_t_grid[it + 1] - log_t_grid[it])
+    fr = (lr - log_rho_grid[ir]) / (log_rho_grid[ir + 1] - log_rho_grid[ir])
+    c00 = table[:, it, ir];       c10 = table[:, it + 1, ir]
+    c01 = table[:, it, ir + 1];   c11 = table[:, it + 1, ir + 1]
+    log_kappa = ((c00 * (1 - ft) + c10 * ft) * (1 - fr)
+                 + (c01 * (1 - ft) + c11 * ft) * fr)
+    return 10.0 ** log_kappa

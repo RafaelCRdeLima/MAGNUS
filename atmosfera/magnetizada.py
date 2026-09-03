@@ -442,7 +442,8 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
           mu_nodes: int = 6, iterations: int = 200, tolerance: float = 1.0e-5,
           damping: float = 0.25, vacuum: bool = False,
           surface_column: float | None = None,
-          conversion: str = "full", trace: list | None = None) -> dict:
+          conversion: str = "full", trace: list | None = None,
+          atomic: bool = False) -> dict:
     """Atmosfera magnetizada, campo ao longo da normal: o caso dos `ThB00`.
 
     A mesma máquina do estágio 1 — hidrostática P = g·y, Unsöld–Lucy com
@@ -455,7 +456,7 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
     Sem comptonização e sem ionização parcial — as duas dívidas continuam as do
     estágio 1, e valem aqui o que valem lá.
     """
-    from . import transporte, estrutura
+    from . import transporte, estrutura, atomico
     energies = estrutura.energy_grid(1.0e-3, 60.0, 220) if energies is None else energies
     # ATMOSFERA FINA (P3): coluna truncada em surface_column, com uma superfície
     # emissora embaixo — I+(fundo) = B/2 por modo, a eq. (15) do Suleimanov,
@@ -499,6 +500,17 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
     surface_relaxation = 1.0
     surface_previous = 0.0
 
+    # IONIZAÇÃO PARCIAL (P1): a opacidade ligado-livre atômica entra como
+    # absorção na componente α=0 (paralela a B) da base cíclica. Cara por
+    # profundidade, então tabulada UMA vez em (lgT, lgρ) e interpolada por
+    # iteração (ver atomico.py). Ranges generosos que cobrem a atmosfera.
+    atomic_table = atomic_lt = atomic_lr = None
+    if atomic:
+        atomic_lt = np.linspace(log_t_eff - 0.8, log_t_eff + 0.9, 16)
+        atomic_lr = np.linspace(-7.0, 4.0, 24)
+        atomic_table = atomico.atomic_opacity_table(field_g, atomic_lt,
+                                                    atomic_lr, energies)
+
     for step in range(iterations):
         density = pressure * estrutura.PROTON_MASS / (2.0 * estrutura.BOLTZMANN * temperature)
         if vacuum:
@@ -513,6 +525,14 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
             amplitudes = stack
         absorption_cyclic = cyclic_free_free(grid, density[None, :],
                                              temperature[None, :], field_g)  # (nE,nD,3)
+        if atomic:
+            # κ_bf atômico na componente α=0 (paralela a B): é absorção com a
+            # polarização longitudinal, a que a transição π domina na banda mole.
+            kappa_bf = atomico.interpolate_atomic_opacity(
+                atomic_table, atomic_lt, atomic_lr,
+                np.log10(temperature), np.log10(np.maximum(density, 1.0e-30)))
+            absorption_cyclic = absorption_cyclic.copy()
+            absorption_cyclic[:, :, 2] = absorption_cyclic[:, :, 2] + kappa_bf
         # O espalhamento agora também é por profundidade: a ressonância do
         # próton carrega as larguras colisional e Doppler locais.
         scattering_cyclic = cyclic_scattering(grid, field_g, density[None, :],

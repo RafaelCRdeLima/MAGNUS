@@ -690,9 +690,19 @@ class FitProblem:
     def in_prior(self, values: list[float]) -> bool:
         if any(not lo <= value <= hi for value, (lo, hi) in zip(values, self.bounds)):
             return False
-        mass, radius = values[0], values[1]
-        if 2.0 * 1.4766250385 * mass / radius >= 0.985:
-            return False
+        if self.fit_compactness:
+            # values[0] é u = 2GM/Rc²; a massa implicada tem de ser física, ou o
+            # fit foge para R grande + u alto (M ~ 4 M☉). Sem este vínculo, o
+            # prior de massa que segurava o modo (M,R) desaparece e a
+            # degenerescência da geometria escapa para o impossível.
+            u, radius = values[0], values[1]
+            mass = u * radius / (2.0 * _GM_SUN_C2_KM)
+            if u >= 0.985 or not (0.8 <= mass <= 2.5):
+                return False
+        else:
+            mass, radius = values[0], values[1]
+            if 2.0 * _GM_SUN_C2_KM * mass / radius >= 0.985:
+                return False
         # Quebra a degenerescência inclinação <-> colatitude. O problema é
         # simétrico sob a troca: medido nesta observação, permutar os dois muda
         # logL em 1 a 20 sobre valores da ordem de 1e5, ou seja, 1e-4 relativo.

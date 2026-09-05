@@ -30,6 +30,25 @@ except Exception:                                   # pragma: no cover
 BINS = 26          # células por eixo — casadas ao nº típico de amostras
 SIGMA = 1.1        # suavização, em células
 
+plt.rcParams.update({
+    "font.family": "serif", "font.serif": ["Times New Roman", "DejaVu Serif"],
+    "mathtext.fontset": "dejavuserif", "axes.grid": False,
+    "xtick.direction": "in", "ytick.direction": "in",
+})
+
+# Rótulos de publicação (inglês) para os nomes de parâmetro do ajuste.
+LABELS = {
+    "mass": r"$M\,[M_\odot]$", "radius": r"$R\,$[km]", "inclination": r"$i\,$[deg]",
+    "phaseOffset": r"$\phi_0$", "logMagneticField": r"$\log B$",
+    "baseKT": r"$kT_{\rm p}$[keV]", "peaking": r"$a$", "atmFraction": r"$f$",
+    "magColat": r"$\theta_B$[deg]", "magAzim": r"$\varphi_B$[deg]",
+    "lineEnergy": r"$E_{\rm line}$[keV]", "lineWidth": r"$\sigma_{\rm line}$",
+    "lineDepth": r"$\tau_{\rm line}$",
+    "theta1": r"$\theta_1$", "radius1": r"$\rho_1$", "kT1": r"$kT_1$",
+    "theta2": r"$\theta_2$", "radius2": r"$\rho_2$", "kT2": r"$kT_2$",
+    "relativePhi2": r"$\Delta\varphi_2$",
+}
+
 
 def load(path: str):
     if path.endswith(".npz"):
@@ -81,7 +100,7 @@ def main() -> None:
     path, out = sys.argv[1], sys.argv[2]
     samples, names = load(path)
     keep = [i for i in range(samples.shape[1]) if np.ptp(samples[:, i]) > 1e-9]
-    S = samples[:, keep]; labels = [names[i] for i in keep]
+    S = samples[:, keep]; labels = [LABELS.get(names[i], names[i]) for i in keep]
     n = len(labels)
     fig, axes = plt.subplots(n, n, figsize=(1.7 * n, 1.7 * n))
     if n == 1:
@@ -109,10 +128,7 @@ def main() -> None:
                 ax.set_yticklabels([])
             else:
                 ax.set_ylabel(labels[i], fontsize=8); ax.tick_params(labelsize=6)
-    smooth = "suavizado" if _SMOOTH else "sem scipy — não suavizado"
-    fig.suptitle(f"Corner — ajuste MAGNUS (RBS 1223) · contornos 1σ e 2σ ({smooth})",
-                 fontsize=12)
-    fig.tight_layout(rect=[0, 0, 1, 0.98]); fig.savefig(out, dpi=110)
+    fig.tight_layout(); fig.savefig(out, dpi=140, bbox_inches="tight")
     print(f"corner salvo: {out}  ({len(S)} amostras, {n} parâmetros livres)")
 
 

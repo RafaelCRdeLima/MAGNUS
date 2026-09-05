@@ -9,3 +9,4 @@ exploracoes/**/*ckpt*.npz
 exploracoes/**/*.pid
 exploracoes/**/*.log
 exploracoes/**/*.err
+exploracoes/combinado_gui_*.npz

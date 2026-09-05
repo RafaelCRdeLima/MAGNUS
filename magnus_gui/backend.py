@@ -114,6 +114,30 @@ def run_spectral_grid(state: ModelState, timeout: float = 60.0) -> dict:
     raise RuntimeError("motor não devolveu JSON")
 
 
+def read_atmosphere_table(path: str) -> dict:
+    """Lê uma tabela de intensidade MAGNUS (MAGNUSI1/2): eixos + lg w."""
+    import struct
+    import numpy as np
+    with open(path, "rb") as f:
+        magic = f.read(8)
+        if magic not in (b"MAGNUSI1", b"MAGNUSI2"):
+            raise ValueError("não é uma tabela de intensidade do MAGNUS")
+        has_b = magic == b"MAGNUSI2"
+        names = (["log_b"] if has_b else []) + ["log_t", "log_g", "theta_b", "mu", "log_e"]
+        axes = {}
+        for nm in names:
+            n = struct.unpack("<I", f.read(4))[0]
+            axes[nm] = np.frombuffer(f.read(4 * n), dtype="<f4").astype(float)
+        if not has_b:
+            axes = {"log_b": np.array([0.0]), **axes}
+        shape = tuple(len(axes[k]) for k in ("log_b", "log_t", "log_g", "theta_b", "mu", "log_e"))
+        total = int(np.prod(shape))
+        log_w = np.frombuffer(f.read(4 * total), dtype="<f4").astype(float).reshape(shape)
+    axes["log_w"] = log_w
+    axes["magic"] = magic.decode()
+    return axes
+
+
 def read_events_meta(path: str) -> dict:
     """Lê o cabeçalho ``#`` de uma lista de eventos pulsaris."""
     meta = {}
@@ -180,6 +204,77 @@ def build_fit_request(state: ModelState, flags: dict, meta: dict, mcmc: dict) ->
         # mcmc_fit deixa M e R livres por padrão; congela-os quando não pedidos.
         req["fixed"] = {"mass": state.mass, "radius": state.radius}
     return req
+
+
+def _read_events_xy(path: str):
+    """Devolve (tempos, energias_keV, meta) de uma lista pulsaris."""
+    import csv, io
+    import numpy as np
+    meta = read_events_meta(path)
+    lines = Path(path).read_text(encoding="utf-8-sig").splitlines()
+    data = [l for l in lines if l.strip() and not l.startswith("#")]
+    reader = csv.DictReader(io.StringIO("\n".join(data)))
+    ekey = next((k for k in ("DETECTED_ENERGY_KEV", "ENERGY_KEV", "ENERGY") if k in reader.fieldnames), None)
+    t, e = [], []
+    for row in reader:
+        t.append(float(row["TIME"])); e.append(float(row[ekey]))
+    return np.array(t), np.array(e), meta
+
+
+def _bin_background(path, emin, emax, ebins):
+    import numpy as np
+    edges = np.linspace(emin, emax, ebins + 1)
+    ec = 0.5 * (edges[1:] + edges[:-1])
+    if not path:
+        return np.zeros(ebins)
+    en, rate = [], []
+    for line in Path(path).read_text(encoding="utf-8-sig").splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        parts = s.replace(",", " ").split()
+        if len(parts) >= 2:
+            en.append(float(parts[0])); rate.append(float(parts[1]))
+    if len(en) < 2:
+        return np.zeros(ebins)
+    return np.interp(ec, np.array(en), np.array(rate), left=rate[0], right=rate[-1])
+
+
+def coadd_observations(event_paths, bg_paths, out_npz, emin=0.15, emax=1.2,
+                       ebins=40, pbins=32):
+    """Dobra cada observação no seu período, alinha por cross-correlação da forma
+    e soma. Grava um .npz {observed, exposure, background} para o ajuste."""
+    import numpy as np
+    grids, bgs, exps, lcs = [], [], [], []
+    for ev, bg in zip(event_paths, bg_paths):
+        t, e, meta = _read_events_xy(ev)
+        P = float(meta.get("period_s", 1.0))
+        exp = float(meta.get("exposure_s", (t.max() - t.min()) if t.size else 0.0))
+        keep = (e >= emin) & (e < emax)
+        ph = ((t[keep] % P) / P)
+        ie = np.clip(((e[keep] - emin) / (emax - emin) * ebins).astype(int), 0, ebins - 1)
+        ip = np.clip((ph * pbins).astype(int), 0, pbins - 1)
+        g = np.zeros((pbins, ebins))
+        np.add.at(g, (ip, ie), 1.0)
+        grids.append(g); exps.append(exp); lcs.append(g.sum(1))
+        bgs.append(_bin_background(bg, emin, emax, ebins))
+    # alinha os demais ao primeiro por cross-correlação da forma
+    ref = lcs[0] / lcs[0].mean() - 1
+    shifts = [0]
+    for k in range(1, len(grids)):
+        b = lcs[k] / lcs[k].mean() - 1
+        best = max(range(pbins), key=lambda s: float(np.corrcoef(ref, np.roll(b, s))[0, 1]))
+        shifts.append(best)
+        grids[k] = np.roll(grids[k], best, axis=0)
+    observed = np.sum(grids, axis=0)
+    exposure = float(np.sum(exps))
+    background = np.sum([bg * ex for bg, ex in zip(bgs, exps)], axis=0) / exposure
+    corr = 1.0 if len(grids) == 1 else float(np.corrcoef(
+        ref, np.roll(lcs[1] / lcs[1].mean() - 1, shifts[1]))[0, 1])
+    np.savez(out_npz, observed=observed.ravel().astype(int), exposure=exposure,
+             background=background, shifts=np.array(shifts))
+    return {"counts": int(observed.sum()), "exposure": exposure,
+            "shifts": shifts, "corr": corr, "profiles": lcs, "shift1": shifts[-1]}
 
 
 def folded_and_spectrum(grid: dict):

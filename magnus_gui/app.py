@@ -8,7 +8,8 @@ from PySide6.QtCore import Qt, QSize
 
 from . import theme as T
 from . import brand
-from .panels import ModeloPanel, AjustePanel, ResultadosPanel, PlaceholderPanel
+from .panels import (ModeloPanel, AtmosferaPanel, AjustePanel, DadosPanel,
+                     ResultadosPanel, PlaceholderPanel)
 
 
 class MainWindow(QMainWindow):
@@ -68,21 +69,16 @@ class MainWindow(QMainWindow):
         self.modelo = ModeloPanel(status_cb=self._set_status)
         tabs.addTab(self.modelo, brand.icon("modelo"), "  Modelo")
 
-        tabs.addTab(PlaceholderPanel("Atmosfera", [
-            "Ver os eixos da tabela de intensidade (lg B, lg T, θ_B, μ, lg E).",
-            "Cortes de I(E, μ, θ_B) e o feixe angular.",
-            "Mapa de temperatura T(θ) na esfera — o rotador oblíquo.",
-        ]), brand.icon("atmosfera"), "  Atmosfera")
+        self.atmosfera = AtmosferaPanel(status_cb=self._set_status)
+        tabs.addTab(self.atmosfera, brand.icon("atmosfera"), "  Atmosfera")
 
         self.resultados = ResultadosPanel(status_cb=self._set_status)
         self.ajuste = AjustePanel(self.modelo, status_cb=self._set_status,
                                   on_result=self._on_fit_result)
         tabs.addTab(self.ajuste, brand.icon("ajuste"), "  Ajuste")
 
-        tabs.addTab(PlaceholderPanel("Dados", [
-            "Exportar eventos e fundo do XREDUX para o formato pulsaris.",
-            "Co-adicionar observações por cross-correlação da forma do pulso.",
-        ]), brand.icon("dados"), "  Dados")
+        self.dados = DadosPanel(status_cb=self._set_status)
+        tabs.addTab(self.dados, brand.icon("dados"), "  Dados")
 
         tabs.addTab(self.resultados, brand.icon("resultados"), "  Resultados")
 

@@ -287,6 +287,127 @@ class AjustePanel(QWidget):
         if self.status_cb: self.status_cb("erro: " + msg)
 
 
+class AtmosferaPanel(QWidget):
+    """Inspeciona a tabela de intensidade: eixos, feixe I(μ), endurecimento e o
+    mapa de temperatura T(θ) na esfera."""
+    def __init__(self, status_cb=None):
+        super().__init__()
+        self.status_cb = status_cb
+        self.tab = None
+        root = QHBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(0)
+        col = QWidget(); cl = QVBoxLayout(col); cl.setContentsMargins(14, 14, 14, 14); cl.setSpacing(11)
+
+        info = Card("Tabela", T.VIOLET)
+        self.lbl = QLabel("carregando…"); self.lbl.setObjectName("rowSub"); self.lbl.setWordWrap(True)
+        info.add(self.lbl)
+        b = QPushButton("Abrir outra tabela…"); b.clicked.connect(self._open); info.add(b)
+        cl.addWidget(info)
+
+        cut = Card("Corte", T.CYAN)
+        self.cb_b = QComboBox(); self.cb_t = QComboBox(); self.cb_th = QComboBox()
+        for lab, cb in (("lg B", self.cb_b), ("lg T", self.cb_t), ("θ_B", self.cb_th)):
+            r = QHBoxLayout(); q = QLabel(lab); q.setObjectName("rowLabel"); r.addWidget(q, 1); r.addWidget(cb)
+            cut.add_row(r); cb.currentIndexChanged.connect(self._draw)
+        cl.addWidget(cut)
+
+        mapc = Card("Mapa T(θ)", T.MAGENTA)
+        self.a = ParamRow("Concentração a", 0.5, lo=0, hi=4, step=0.1, decimals=2, on_change=self._draw_map)
+        mapc.add(self.a)
+        cl.addWidget(mapc)
+        cl.addStretch(1)
+        root.addWidget(_scroll(col))
+
+        stage = QWidget(); sl = QVBoxLayout(stage); sl.setContentsMargins(16, 16, 16, 16); sl.setSpacing(12)
+        row = QHBoxLayout(); row.setSpacing(12)
+        self.cv_beam = plots.Canvas(); self.cv_ratio = plots.Canvas()
+        for cv in (self.cv_beam, self.cv_ratio):
+            cv.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding); row.addWidget(cv)
+        sl.addLayout(row, 1)
+        self.cv_map = plots.Canvas(width=8, height=2.6)
+        self.cv_map.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.cv_map.setMinimumHeight(210)
+        sl.addWidget(self.cv_map)
+        root.addWidget(stage, 1)
+
+        QTimer.singleShot(80, self._load_default)
+
+    def _load_default(self):
+        from .backend import default_table
+        p = default_table()
+        if p:
+            self._load(p)
+        else:
+            self.lbl.setText("sem tabela em tabelas/ ou build/")
+            plots.draw_message(self.cv_beam, "sem tabela de atmosfera")
+            plots.draw_message(self.cv_ratio, "—")
+        self._draw_map()
+
+    def _open(self):
+        p, _ = QFileDialog.getOpenFileName(self, "Tabela", str(ROOT_EXPLORA().parent / "tabelas"), "MAGNUS (*.magnus);;Todos (*)")
+        if p: self._load(p)
+
+    def _load(self, path):
+        from .backend import read_atmosphere_table
+        try:
+            self.tab = read_atmosphere_table(path)
+        except Exception as e:
+            self.lbl.setText(f"erro: {e}"); return
+        import numpy as np
+        t = self.tab
+        self.lbl.setText(f"{Path(path).name} · {t['magic']}\n"
+                         f"lg B: {len(t['log_b'])}  lg T: {len(t['log_t'])}  θ_B: {len(t['theta_b'])}  "
+                         f"μ: {len(t['mu'])}  lg E: {len(t['log_e'])}")
+        for cb, key, fmt in ((self.cb_b, "log_b", "{:.2f}"), (self.cb_t, "log_t", "{:.2f}"), (self.cb_th, "theta_b", "{:.0f}°")):
+            cb.blockSignals(True); cb.clear()
+            for v in t[key]: cb.addItem(fmt.format(v))
+            cb.setCurrentIndex(len(t[key]) // 2); cb.blockSignals(False)
+        self._draw()
+
+    def _draw(self):
+        if not self.tab: return
+        import numpy as np
+        t = self.tab; lw = t["log_w"]
+        ib = max(0, self.cb_b.currentIndex()); it = max(0, self.cb_t.currentIndex()); ith = max(0, self.cb_th.currentIndex())
+        mu = t["mu"]; E = 10 ** t["log_e"]
+        # feixe I(mu) em 3 energias (razão para corpo negro)
+        ax = self.cv_beam.ax; self.cv_beam.clear()
+        eidx = [int(len(E) * f) for f in (0.15, 0.5, 0.85)]
+        cols = [T.CYAN, T.VIOLET, T.MAGENTA]
+        for k, ie in enumerate(eidx):
+            w = 10 ** lw[ib, it, 0, ith, :, ie]
+            ax.plot(mu, w, color=cols[k], lw=2, label=f"{E[ie]:.2f} keV")
+        ax.set_title("Feixe I(μ) / corpo negro", fontsize=10); ax.set_xlabel("μ = cos θ"); ax.legend(fontsize=8)
+        self.cv_beam.fig.tight_layout(); self.cv_beam.draw()
+        # endurecimento: média em mu vs energia
+        ax2 = self.cv_ratio.ax; self.cv_ratio.clear()
+        hard = (10 ** lw[ib, it, 0, ith, :, :]).mean(axis=0)
+        ax2.plot(E, hard, color=T.AMBER, lw=2)
+        ax2.set_xscale("log"); ax2.set_title("Endurecimento (média em μ)", fontsize=10)
+        ax2.set_xlabel("energia (keV)"); ax2.set_ylabel("I/B_E")
+        self.cv_ratio.fig.tight_layout(); self.cv_ratio.draw()
+        if self.status_cb: self.status_cb(f"tabela: corte lg B={t['log_b'][ib]:.2f}, lg T={t['log_t'][it]:.2f}, θ_B={t['theta_b'][ith]:.0f}°")
+
+    def _draw_map(self):
+        import numpy as np
+        a = self.a.value()
+        ax = self.cv_map.ax; self.cv_map.clear()
+        ax.set_aspect("equal"); ax.set_xticks([]); ax.set_yticks([])
+        tilt = np.deg2rad(-20)
+        axv = np.array([np.sin(tilt), -np.cos(tilt)])
+        n = 160
+        xs = np.linspace(-1, 1, n); ys = np.linspace(-0.5, 0.5, n // 2)
+        pts_x, pts_y, cvals = [], [], []
+        for yy in ys:
+            for xx in xs:
+                if xx * xx + (yy * 2) ** 2 > 1: continue
+                c = abs(xx * axv[0] + (yy * 2) * axv[1]); c2 = c * c
+                T4 = c2 / (c2 + a * (1 - c2)) + 0.3 ** 4
+                pts_x.append(xx); pts_y.append(yy); cvals.append(T4 ** 0.25)
+        sc = ax.scatter(pts_x, pts_y, c=cvals, cmap="magma", s=6, marker="s")
+        ax.set_title("Temperatura T(θ) na esfera — polos quentes, equador frio", fontsize=10, color=T.TEXT)
+        self.cv_map.fig.tight_layout(); self.cv_map.draw()
+
+
 class ResultadosPanel(QWidget):
     """Lê um ajuste terminado: tabela de parâmetros + pulso e espectro vs dados."""
     def __init__(self, status_cb=None):
@@ -425,6 +546,85 @@ def ROOT_EXPLORA():
     from .backend import ROOT
     d = ROOT / "exploracoes"
     return d if d.is_dir() else ROOT
+
+
+class DadosPanel(QWidget):
+    """Co-adiciona observações: dobra cada uma, alinha pela forma, soma e grava
+    um .npz que a aba Ajuste pode usar (preparedDataNpz)."""
+    def __init__(self, status_cb=None):
+        super().__init__()
+        self.status_cb = status_cb
+        self.obs = []   # lista de (eventos, fundo)
+        self.npz = None
+        root = QHBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(0)
+        col = QWidget(); cl = QVBoxLayout(col); cl.setContentsMargins(14, 14, 14, 14); cl.setSpacing(11)
+        card = Card("Observações", T.CYAN)
+        self.lst = QLabel("nenhuma observação"); self.lst.setObjectName("rowSub"); self.lst.setWordWrap(True)
+        add = QPushButton("Adicionar observação…"); add.clicked.connect(self._add)
+        clr = QPushButton("Limpar"); clr.clicked.connect(self._clear)
+        card.add(self.lst); card.add(add); card.add(clr)
+        cl.addWidget(card)
+        run = Card("Co-adição", T.MAGENTA)
+        self.btn = QPushButton("Co-adicionar e salvar .npz"); self.btn.setObjectName("primary")
+        self.btn.clicked.connect(self._coadd); run.add(self.btn)
+        self.out = QLabel(""); self.out.setObjectName("rowSub"); self.out.setWordWrap(True); run.add(self.out)
+        cl.addWidget(run); cl.addStretch(1)
+        root.addWidget(_scroll(col))
+        stage = QWidget(); sl = QVBoxLayout(stage); sl.setContentsMargins(16, 16, 16, 16); sl.setSpacing(12)
+        head = QLabel("Co-adição de observações"); head.setStyleSheet(f"color:{T.TEXT};font-size:15px;font-weight:600;background:transparent")
+        sl.addWidget(head)
+        self.cv = plots.Canvas(width=8, height=4); self.cv.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        sl.addWidget(self.cv, 1)
+        plots.draw_message(self.cv, "adicione observações e co-adicione para ver os perfis alinhados")
+        root.addWidget(stage, 1)
+
+    def _add(self):
+        p, _ = QFileDialog.getOpenFileName(self, "Eventos", str(ROOT_EXPLORA()), "CSV (*.csv)")
+        if not p: return
+        bg = None
+        cand = p.replace("events", "background")
+        if cand != p and Path(cand).is_file():
+            bg = cand
+        else:
+            b, _ = QFileDialog.getOpenFileName(self, "Fundo (opcional — cancele se não houver)", str(Path(p).parent), "CSV (*.csv)")
+            bg = b or None
+        self.obs.append((p, bg))
+        self.lst.setText("\n".join(f"{i+1}. {Path(e).name}" + ("  +fundo" if b else "") for i, (e, b) in enumerate(self.obs)))
+
+    def _clear(self):
+        self.obs = []; self.lst.setText("nenhuma observação")
+
+    def _coadd(self):
+        if len(self.obs) < 1:
+            self.out.setText("adicione ao menos uma observação"); return
+        from .backend import coadd_observations, ROOT
+        import time
+        out = ROOT / "exploracoes" / f"combinado_gui_{int(time.time())}.npz"
+        out.parent.mkdir(exist_ok=True)
+        try:
+            evs = [e for e, _ in self.obs]; bgs = [b for _, b in self.obs]
+            res = coadd_observations(evs, bgs, str(out))
+            self.npz = str(out)
+            self.out.setText(f"{res['counts']} contagens · {res['exposure']:.0f} s · "
+                             f"corr {res['corr']:.2f}\n{out.name}")
+            self._draw(res)
+            if self.status_cb: self.status_cb(f"co-adição: {res['counts']} contagens em {out.name}")
+        except Exception as e:
+            self.out.setText(f"erro: {e}")
+
+    def _draw(self, res):
+        import numpy as np
+        ax = self.cv.ax; self.cv.clear()
+        cols = [T.CYAN, T.MAGENTA, T.AMBER, T.VIOLET]
+        for k, lc in enumerate(res["profiles"]):
+            sh = res["shifts"][k]
+            y = np.roll(lc, sh); y = y / y.mean()
+            ph = (np.arange(len(y)) + 0.5) / len(y)
+            ax.plot(np.concatenate([ph, ph + 1]), np.concatenate([y, y]),
+                    color=cols[k % 4], lw=2, label=f"obs {k+1}" + (f" (+{sh})" if sh else ""))
+        ax.set_title(f"Perfis alinhados · correlação {res['corr']:.2f}", fontsize=10)
+        ax.set_xlabel("fase"); ax.set_ylabel("normalizado"); ax.legend(fontsize=8)
+        self.cv.fig.tight_layout(); self.cv.draw()
 
 
 class PlaceholderPanel(QWidget):

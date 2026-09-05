@@ -2,3 +2,10 @@ build/
 __pycache__/
 *.pyc
 nohup.out
+
+# checkpoints de MCMC (regeneráveis)
+exploracoes/**/*ckpt*.npz
+# artefatos de processo
+exploracoes/**/*.pid
+exploracoes/**/*.log
+exploracoes/**/*.err

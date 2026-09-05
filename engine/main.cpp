@@ -103,6 +103,36 @@ struct Config {
     // isso, B é fixo pela tabela. O bloco vem DEPOIS da atmosfera e ANTES do
     // feixe na linha do worker — a mesma ordem do worker_line do mcmc_fit.
     bool fit_log_field{false};
+    // Temperatura de fundo da estrela inteira. Quando > 0, a superfície inteira
+    // emite a essa temperatura (a média da emissão), e os spots entram POR CIMA,
+    // substituindo o fundo na sua área — o pedaço de superfície coberto pelo spot
+    // é descontado do fundo para não contar duas vezes. É o que dá o pulso SUAVE:
+    // com fundo sempre visível, o fluxo nunca zera, e os spots modulam uma
+    // fração do total, em vez do liga-desliga de um spot sobre estrela escura.
+    double base_temperature_mk{0.0};
+    bool fit_base_temperature{false};
+    // Lei de temperatura dipolar T(theta) de Pérez-Azorín/Hambaryan: a superfície
+    // não é isotérmica; o calor flui melhor ao longo de B (condução anisotrópica),
+    // então os polos MAGNÉTICOS ficam quentes e o equador frio —
+    //   T^4(theta) = T_p^4 * cos^2/(cos^2 + a*sin^2) + T_min^4,
+    // com theta a colatitude MAGNÉTICA de cada ponto, T_p = base_temperature_mk,
+    // T_min = temperature_min_frac * T_p, e `a` (temperature_peaking) o quão
+    // concentrado é o calor: a=0 devolve o fundo uniforme (comportamento antigo),
+    // a=1/4 é o dipolo clássico, a>1 uma calota apertada. É o que dá, de uma vez,
+    // o pulso (polos quentes girando) e o espectro mole (equador frio, área grande).
+    double temperature_peaking{0.0};       // o parâmetro `a`
+    double temperature_min_frac{0.3};      // T_min / T_p (Pérez-Azorín ~0,3)
+    bool fit_temperature_peaking{false};
+    // Inclinação do eixo do dipolo em relação ao eixo de rotação. Quando LIVRE,
+    // o fundo axissimétrico deixa de ser: a atmosfera é anisotrópica em theta_B,
+    // então um dipolo inclinado faz o disco visível varrer theta_B ao girar e o
+    // fundo pulsa SUAVEMENTE sozinho — o mecanismo de pulso das XDINS, sem spot.
+    bool fit_magnetic_colatitude{false};
+    // Azimute do eixo do dipolo. É o knob de FASE do pulso do fundo dipolar: gira
+    // o padrão magnético em torno do eixo de rotação, deslocando onde o máximo do
+    // pulso cai. Sem ele livre, o pulso do fundo não alinha com o da observação
+    // (o phaseOffset só move os spots), e o ajuste foge para pole-on.
+    bool fit_magnetic_azimuth{false};
     std::string anisotropy_table;
     std::string nsmaxg_table;
     // Tabela de intensidade do MAGNUS: lg da razão para corpo negro, resolvida
@@ -290,6 +320,54 @@ std::vector<SurfaceSample> sample_spot(const Spot& spot, int rings) {
     return samples;
 }
 
+// A estrela inteira a uma temperatura de fundo, descartando os ladrilhos cujo
+// centro cai dentro de algum spot: ali quem emite é o spot, e o fundo é
+// subtraído para não contar duas vezes o mesmo pedaço de superfície. É o modelo
+// "temperatura média da estrela + spots" — o fundo sempre visível dá o pulso
+// SUAVE que um spot sobre estrela escura não consegue (aquele ou fica sempre
+// visível, e não pulsa, ou some atrás da estrela, e pulsa cem por cento).
+//
+// A tesselação é em bandas de colatitude com azimutes proporcionais ao seno,
+// para ladrilhos de área quase igual. Ela é independente da resolução dos
+// spots: o fundo é suave e não precisa de malha fina para a sua contribuição de
+// fase (que vem só da variação de theta_B pelo disco e da curvatura da luz).
+std::vector<SurfaceSample> sample_full_sphere(double base_temperature_mk, int bands,
+                                              const std::vector<Spot>& spots) {
+    std::vector<SurfaceSample> samples;
+    const double intensity = std::pow(std::max(base_temperature_mk, 0.01), 4.0);
+    std::vector<Vec3> centers;
+    std::vector<double> cos_radius;
+    centers.reserve(spots.size());
+    cos_radius.reserve(spots.size());
+    for (const auto& spot : spots) {
+        const double th = deg(spot.theta_deg), ph = deg(spot.phi_deg);
+        centers.push_back({std::sin(th) * std::cos(ph), std::sin(th) * std::sin(ph),
+                           std::cos(th)});
+        cos_radius.push_back(std::cos(deg(spot.radius_deg)));
+    }
+    const int nlat = std::max(8, bands);
+    for (int il = 0; il < nlat; ++il) {
+        const double t0 = pi * il / nlat;
+        const double t1 = pi * (il + 1) / nlat;
+        const double tmid = 0.5 * (t0 + t1);
+        const int azimuths = std::max(4, static_cast<int>(
+            std::ceil(2.0 * nlat * std::sin(tmid))));
+        const double tile_area = 2.0 * pi * (std::cos(t0) - std::cos(t1)) / azimuths;
+        for (int ia = 0; ia < azimuths; ++ia) {
+            const double ph = 2.0 * pi * (ia + 0.5) / azimuths;
+            const Vec3 normal{std::sin(tmid) * std::cos(ph),
+                              std::sin(tmid) * std::sin(ph), std::cos(tmid)};
+            bool in_spot = false;
+            for (std::size_t s = 0; s < centers.size(); ++s) {
+                if (dot(normal, centers[s]) >= cos_radius[s]) { in_spot = true; break; }
+            }
+            if (in_spot) continue;
+            samples.push_back({normal, tile_area, intensity});
+        }
+    }
+    return samples;
+}
+
 std::string number(double value) {
     if (!std::isfinite(value)) return "null";
     std::ostringstream out;
@@ -342,6 +420,14 @@ Config parse_args(int argc, char** argv) {
         else if (key == "--atmosphere") cfg.atmosphere_hardening = std::stod(value());
         else if (key == "--magnetic-field") cfg.magnetic_field_g = std::stod(value());
         else if (key == "--fit-log-field") cfg.fit_log_field = true;
+        else if (key == "--base-temp-mk") cfg.base_temperature_mk = std::stod(value());
+        else if (key == "--base-kt-kev") cfg.base_temperature_mk = std::stod(value()) / kt_kev_per_mk;
+        else if (key == "--fit-base-temperature") cfg.fit_base_temperature = true;
+        else if (key == "--temperature-peaking") cfg.temperature_peaking = std::stod(value());
+        else if (key == "--temperature-min-frac") cfg.temperature_min_frac = std::stod(value());
+        else if (key == "--fit-temperature-peaking") cfg.fit_temperature_peaking = true;
+        else if (key == "--fit-magnetic-colatitude") cfg.fit_magnetic_colatitude = true;
+        else if (key == "--fit-magnetic-azimuth") cfg.fit_magnetic_azimuth = true;
         else if (key == "--anisotropy-table") cfg.anisotropy_table = value();
         else if (key == "--nsmaxg-table") cfg.nsmaxg_table = value();
         else if (key == "--atmosphere-table") cfg.atmosphere_table = value();
@@ -1686,6 +1772,32 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
                              std::sin(magnetic_colatitude) * std::sin(magnetic_azimuth),
                              std::cos(magnetic_colatitude)};
     std::vector<SpectralSurfaceSample> surface;
+    // O fundo de estrela inteira entra primeiro, com spot_id = -1, e os spots
+    // vêm por cima: os ladrilhos do fundo que caem dentro de um spot já foram
+    // descartados por sample_full_sphere, então cada pedaço de superfície emite
+    // uma vez só — o fundo onde não há spot, o spot onde há.
+    if (cfg.base_temperature_mk > 0.0) {
+        const int base_bands = std::clamp(2 * cfg.surface_rings, 16, 60);
+        const auto base = sample_full_sphere(cfg.base_temperature_mk, base_bands, cfg.spots);
+        // Lei T(theta): a>0 liga a distribuição dipolar (polos quentes, equador
+        // frio); a=0 devolve o fundo uniforme. cos(theta_mag)=normal·eixo_B.
+        const double a = cfg.temperature_peaking;
+        const double t_pole4 = std::pow(cfg.base_temperature_mk, 4.0);
+        const double t_min4 = std::pow(std::max(0.0, cfg.temperature_min_frac)
+                                       * cfg.base_temperature_mk, 4.0);
+        for (const auto& sample : base) {
+            const double cmag = dot(sample.normal, magnetic_axis);
+            double temperature = cfg.base_temperature_mk;
+            if (a > 0.0) {
+                const double c2 = cmag * cmag;
+                const double s2 = std::max(0.0, 1.0 - c2);
+                const double t4 = t_pole4 * c2 / (c2 + a * s2) + t_min4;
+                temperature = std::pow(std::max(1.0e-8, t4), 0.25);
+            }
+            surface.push_back({sample.normal, sample.weight, temperature,
+                               dipole_theta_b_deg(cmag), -1});
+        }
+    }
     for (std::size_t spot_id = 0; spot_id < cfg.spots.size(); ++spot_id) {
         const auto samples = sample_spot(cfg.spots[spot_id], cfg.surface_rings);
         for (const auto& sample : samples) {
@@ -1715,9 +1827,14 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
     //
     // A gravidade usa g = GM(1+z)/R^2, que é a definição com que aquelas
     // tabelas foram indexadas; ignorar o redshift daria a linha errada.
+    const bool emits = !cfg.spots.empty() || cfg.base_temperature_mk > 0.0;
+    // Temperatura representativa da estrela para a anisotropia (um escalar por
+    // estrela, simplificação já existente): o fundo se houver, senão o spot.
+    const double representative_mk = cfg.base_temperature_mk > 0.0
+        ? cfg.base_temperature_mk
+        : (cfg.spots.empty() ? 0.0 : cfg.spots.front().temperature_mk);
     double anisotropy = 1.0;
-    if (!cfg.anisotropy_table.empty() && cfg.magnetic_field_g > 0.0 &&
-        !cfg.spots.empty()) {
+    if (!cfg.anisotropy_table.empty() && cfg.magnetic_field_g > 0.0 && emits) {
         static thread_local MagneticAnisotropy table;
         static thread_local std::string loaded_from;
         if (loaded_from != cfg.anisotropy_table) {
@@ -1731,7 +1848,7 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
         const double gravity = 8.98755178736817e20 * mass_cm * redshift /
             (radius_cm_surface * radius_cm_surface);
         anisotropy = table.ratio_at(
-            std::log10(std::max(1.0, cfg.spots.front().temperature_mk * 1.0e6)),
+            std::log10(std::max(1.0, representative_mk * 1.0e6)),
             std::log10(cfg.magnetic_field_g),
             std::log10(std::max(1.0, gravity)));
     }
@@ -1742,7 +1859,7 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
     static thread_local NsmaxgTable nsmaxg;
     static thread_local std::string nsmaxg_loaded_from;
     const bool use_nsmaxg = !cfg.nsmaxg_table.empty() && cfg.magnetic_field_g > 0.0 &&
-        !cfg.spots.empty();
+        emits;
 
     // A tabela do MAGNUS. Ela é a atmosfera CALCULADA, e substitui espectro e
     // feixe de uma vez porque traz os dois; por isso vem antes das outras na
@@ -1750,7 +1867,7 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
     // contar o feixe duas vezes.
     static thread_local AtmosphereTable atmosphere;
     static thread_local std::string atmosphere_loaded_from;
-    const bool use_atmosphere_table = !cfg.atmosphere_table.empty() && !cfg.spots.empty();
+    const bool use_atmosphere_table = !cfg.atmosphere_table.empty() && emits;
     if (use_atmosphere_table && atmosphere_loaded_from != cfg.atmosphere_table) {
         atmosphere.load(cfg.atmosphere_table);
         atmosphere_loaded_from = cfg.atmosphere_table;
@@ -1959,6 +2076,8 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
               << "\""
               << ",\"compactness\":" << number(u)
               << ",\"redshift\":" << number(1.0 / std::sqrt(1.0 - u) - 1.0)
+              << ",\"base_kt_keV\":" << number(cfg.base_temperature_mk * kt_kev_per_mk)
+              << ",\"temperature_peaking\":" << number(cfg.temperature_peaking)
               << ",\"images_used\":" << images_used
               << ",\"period_s\":" << number(cfg.period_s)
               << ",\"distance_kpc\":" << number(cfg.distance_kpc)
@@ -2091,6 +2210,44 @@ int run_fit_worker(const Config& base) {
                     throw std::runtime_error("fit worker expected lg B");
                 }
                 cfg.magnetic_field_g = std::pow(10.0, log_field);
+            }
+            if (base.fit_base_temperature) {
+                double base_kt_kev{};
+                if (!(input >> base_kt_kev)) {
+                    throw std::runtime_error("fit worker expected the base kT");
+                }
+                if (!(base_kt_kev > 0.0)) {
+                    throw std::runtime_error("fit worker received a non-positive base kT");
+                }
+                cfg.base_temperature_mk = base_kt_kev / kt_kev_per_mk;
+            }
+            if (base.fit_temperature_peaking) {
+                double peaking{};
+                if (!(input >> peaking)) {
+                    throw std::runtime_error("fit worker expected the temperature peaking a");
+                }
+                if (!(peaking >= 0.0)) {
+                    throw std::runtime_error("fit worker received a negative peaking a");
+                }
+                cfg.temperature_peaking = peaking;
+            }
+            if (base.fit_magnetic_colatitude) {
+                double colat{};
+                if (!(input >> colat)) {
+                    throw std::runtime_error("fit worker expected the magnetic colatitude");
+                }
+                if (!(colat >= 0.0 && colat <= 180.0)) {
+                    throw std::runtime_error("fit worker received a magnetic colatitude "
+                                             "outside [0,180]");
+                }
+                cfg.magnetic_colatitude_deg = colat;
+            }
+            if (base.fit_magnetic_azimuth) {
+                double azim{};
+                if (!(input >> azim)) {
+                    throw std::runtime_error("fit worker expected the magnetic azimuth");
+                }
+                cfg.magnetic_azimuth_deg = azim;
             }
             if (base.fit_beaming) {
                 if (!(input >> cfg.beaming_a >> cfg.beaming_b)) {

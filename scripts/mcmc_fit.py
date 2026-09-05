@@ -366,6 +366,14 @@ class FitProblem:
         self.energy_bins = int(request["energyBins"])
         self.phase_bins = int(request["phaseBins"])
         self.max_images = int(request.get("maxImages", 2))
+        # Modo "curva de luz": a verossimilhança soma sobre a energia e ajusta só
+        # a FORMA do pulso dobrado, com a normalização da fonte perfilada
+        # analiticamente (o fundo entra como termo aditivo fixo). Assim a
+        # GEOMETRIA é constrangida pelo formato de dois picos, e não pelo
+        # espectro — que domina o grid fase-energia e achata o pulso. É a receita
+        # padrão de pulse-profile modeling (a forma fixa a geometria; o nível, a
+        # normalização, vem do espectro). Ver Hambaryan et al. 2011.
+        self.fit_light_curve = bool(request.get("fitLightCurve", False))
         self.instrument = str(request["instrument"])
         # Uma resposta enviada com os dados vence o catálogo: ela é *daquela*
         # observação, enquanto o perfil do manifesto é de uma configuração
@@ -409,6 +417,21 @@ class FitProblem:
             raise ValueError("no events remain in the selected energy band")
         self.selected = selected
         self.background = self._bin_background(background)
+        # Injeção de um grid JÁ combinado (co-adição de observações): substitui o
+        # observado, a exposição e o fundo por arrays prontos, mantendo toda a
+        # verossimilhança intacta. É como se fosse uma observação só, mais longa.
+        prepared = request.get("preparedDataNpz")
+        if prepared:
+            import numpy as _np
+            data = _np.load(prepared)
+            self.observed = [int(x) for x in data["observed"]]
+            self.exposure = float(data["exposure"])
+            self.selected = int(sum(self.observed))
+            self.background = [float(x) for x in data["background"]]
+            if len(self.observed) != self.phase_bins * self.energy_bins:
+                raise ValueError("preparedDataNpz: grid observado com forma errada")
+            if len(self.background) != self.energy_bins:
+                raise ValueError("preparedDataNpz: fundo com número de bins errado")
         self.absorption_table = ABSORPTION if ABSORPTION.is_file() else None
         self.nh = max(0.0, float(request.get("nh", 0.0)))
         self.nh_max = max(self.nh, float(request.get("nhMax", 5.0)))
@@ -604,6 +627,60 @@ class FitProblem:
             self.initial.append(min(max(start, field_range[0] + 0.02),
                                     field_range[1] - 0.02))
 
+        # Temperatura de fundo da estrela inteira (keV). O modelo é: a superfície
+        # toda emite a essa temperatura — a MÉDIA da emissão — e os spots entram
+        # por cima, descontados do fundo na sua área. O fundo sempre visível dá o
+        # pulso SUAVE; um spot sobre estrela escura só sabe fazer liga-desliga.
+        # Posição no vetor e na linha do worker: DEPOIS de lg B, ANTES do feixe.
+        self.base_temperature = float(request.get("baseTemperature", 0.0))
+        self.fit_base_temperature = bool(request.get("fitBaseTemperature", False))
+        if self.fit_base_temperature:
+            lo, hi = request.get("baseTemperatureRange", (0.02, 0.5))
+            self.names.append("baseKT")
+            self.bounds.append((float(lo), float(hi)))
+            self.steps.append(min(0.01, 0.25 * (hi - lo)))
+            start = self.base_temperature if self.base_temperature > 0 \
+                else 0.5 * (lo + hi)
+            self.initial.append(min(max(start, lo + 1.0e-3), hi - 1.0e-3))
+
+        # Concentração `a` da lei T(θ): polos quentes, equador frio. a=0 uniforme,
+        # a=1/4 dipolo clássico, a>1 calota apertada. Posição: DEPOIS de baseKT,
+        # ANTES da colatitude. Precisa de baseKT (T_pole) para ter efeito.
+        self.temperature_peaking = float(request.get("temperaturePeaking", 0.0))
+        self.temperature_min_frac = float(request.get("temperatureMinFrac", 0.3))
+        self.fit_temperature_peaking = bool(request.get("fitTemperaturePeaking", False))
+        if self.fit_temperature_peaking:
+            lo, hi = request.get("temperaturePeakingRange", (0.0, 4.0))
+            self.names.append("peaking")
+            self.bounds.append((float(lo), float(hi)))
+            self.steps.append(min(0.05, 0.1 * (hi - lo)))
+            start = self.temperature_peaking if lo < self.temperature_peaking < hi else 0.25
+            self.initial.append(min(max(start, lo + 1.0e-3), hi - 1.0e-3))
+
+        # Inclinação do eixo do dipolo em relação ao de rotação. Livre, é ela que
+        # faz o fundo pulsar suavemente sozinho (a atmosfera é anisotrópica em
+        # theta_B), sem custo espectral — o mecanismo de pulso das XDINS. Posição
+        # no vetor e na linha: DEPOIS de baseKT, ANTES do feixe.
+        self.fit_magnetic_colatitude = bool(request.get("fitMagneticColatitude", False))
+        if self.fit_magnetic_colatitude:
+            lo, hi = request.get("magneticColatitudeRange", (0.0, 90.0))
+            self.names.append("magColat")
+            self.bounds.append((float(lo), float(hi)))
+            self.steps.append(min(3.0, 0.25 * (hi - lo)))
+            start = self.magnetic_colatitude if lo < self.magnetic_colatitude < hi \
+                else 0.5 * (lo + hi)
+            self.initial.append(min(max(start, lo + 1.0e-3), hi - 1.0e-3))
+
+        # Azimute do dipolo — o knob de FASE do pulso do fundo. Cíclico em 360°.
+        # Posição no vetor e na linha: DEPOIS de magColat, ANTES do feixe.
+        self.magnetic_azimuth = float(request.get("magneticAzimuth", 0.0))
+        self.fit_magnetic_azimuth = bool(request.get("fitMagneticAzimuth", False))
+        if self.fit_magnetic_azimuth:
+            self.names.append("magAzim")
+            self.bounds.append((-180.0, 180.0))
+            self.steps.append(5.0)
+            self.initial.append(((self.magnetic_azimuth + 180.0) % 360.0) - 180.0)
+
         self.beaming2 = float(request.get("beaming2", 0.0))
         if self.fit_beaming:
             self.names.extend(["beaming", "beaming2"])
@@ -741,7 +818,8 @@ class FitProblem:
         command = [str(ENGINE), "--fit-worker", "--mass", str(base_mass),]
         if self.atmosphere_table:
             command.extend(["--atmosphere-table", str(self.atmosphere_table),
-                            "--magnetic-colatitude", str(self.magnetic_colatitude)])
+                            "--magnetic-colatitude", str(self.magnetic_colatitude),
+                            "--magnetic-azimuth", str(self.magnetic_azimuth)])
             if self.fit_log_field and self.atmosphere_field_range is not None:
                 command.append("--fit-log-field")
         command.extend([
@@ -769,6 +847,21 @@ class FitProblem:
                     command.extend(["--nsmaxg-table", str(NSMAXG_TABLE)])
                 if self.fit_log_field:
                     command.append("--fit-log-field")
+        if self.base_temperature > 0.0 or self.fit_base_temperature:
+            start = (self.initial[self.names.index("baseKT")]
+                     if self.fit_base_temperature else self.base_temperature)
+            command.extend(["--base-kt-kev", str(start)])
+            if self.fit_base_temperature:
+                command.append("--fit-base-temperature")
+        if self.temperature_peaking > 0.0 or self.fit_temperature_peaking:
+            command.extend(["--temperature-peaking", str(self.temperature_peaking),
+                            "--temperature-min-frac", str(self.temperature_min_frac)])
+            if self.fit_temperature_peaking:
+                command.append("--fit-temperature-peaking")
+        if self.fit_magnetic_colatitude:
+            command.append("--fit-magnetic-colatitude")
+        if self.fit_magnetic_azimuth:
+            command.append("--fit-magnetic-azimuth")
         if self.line_depth > 0.0 or self.fit_line:
             command.extend(["--line-energy", str(self.line_energy),
                             "--line-width", str(self.line_width),
@@ -815,6 +908,18 @@ class FitProblem:
         if self.fit_log_field:
             fields.append(values[cursor])
             cursor += 1
+        if self.fit_base_temperature:
+            fields.append(values[cursor])
+            cursor += 1
+        if self.fit_temperature_peaking:
+            fields.append(values[cursor])
+            cursor += 1
+        if self.fit_magnetic_colatitude:
+            fields.append(values[cursor])
+            cursor += 1
+        if self.fit_magnetic_azimuth:
+            fields.append(values[cursor])
+            cursor += 1
         if self.fit_beaming:
             fields.extend(values[cursor:cursor + 2])
             cursor += 2
@@ -841,8 +946,65 @@ class FitProblem:
                         (grid[ip][ie] + self.background[ie])
                         * self.energy_width * represented_time[ip])
                     for ip in range(self.phase_bins) for ie in range(self.energy_bins)]
+        if self.fit_light_curve:
+            return self._score_light_curve(grid, represented_time, return_model)
         log_likelihood = sum(n * math.log(mu) - mu for n, mu in zip(self.observed, expected))
         return (log_likelihood, expected) if return_model else log_likelihood
+
+    def _score_light_curve(self, grid, represented_time,
+                           return_model: bool = False):
+        """Verossimilhança da FORMA do pulso: soma em energia e perfila a
+        normalização da fonte. Fonte e fundo entram separados, para que só a
+        forma dos dois picos constranja a geometria — o nível é livre.
+
+        Modelo por fase: mu_p = alpha * S_p + B_p, com S_p a soma em energia da
+        fonte e B_p a do fundo (fixo). O alpha ótimo (Poisson) resolve
+        sum_p [N_p S_p/(alpha S_p + B_p) - S_p] = 0, monótona em alpha —
+        acha-se por bisseção. Substituído, sobra só a forma.
+        """
+        source_p = [sum(grid[ip][ie] * self.energy_width * represented_time[ip]
+                        for ie in range(self.energy_bins))
+                    for ip in range(self.phase_bins)]
+        background_p = [sum(self.background[ie] * self.energy_width
+                            * represented_time[ip]
+                            for ie in range(self.energy_bins))
+                        for ip in range(self.phase_bins)]
+        observed_p = self.phase_pulse([float(n) for n in self.observed])
+        total_source = sum(source_p)
+        if not (total_source > 0.0):
+            return (-math.inf, None) if return_model else -math.inf
+
+        def derivative(alpha: float) -> float:
+            return sum(n * s / (alpha * s + b) - s
+                       for n, s, b in zip(observed_p, source_p, background_p)
+                       if s > 0.0)
+
+        # Bisseção em alpha: a derivada da log-verossimilhança é decrescente.
+        lo, hi = 1.0e-9, 1.0e9
+        if derivative(lo) <= 0.0:
+            alpha = lo
+        elif derivative(hi) >= 0.0:
+            alpha = hi
+        else:
+            for _ in range(80):
+                mid = math.sqrt(lo * hi)
+                if derivative(mid) > 0.0:
+                    lo = mid
+                else:
+                    hi = mid
+            alpha = math.sqrt(lo * hi)
+
+        model_p = [max(1.0e-14, alpha * s + b)
+                   for s, b in zip(source_p, background_p)]
+        log_likelihood = sum(n * math.log(mu) - mu
+                             for n, mu in zip(observed_p, model_p))
+        if not return_model:
+            return log_likelihood
+        # Devolve o grid com a fonte já normalizada por alpha, para os gráficos.
+        scaled = [max(1.0e-14, (alpha * grid[ip][ie] + self.background[ie])
+                      * self.energy_width * represented_time[ip])
+                  for ip in range(self.phase_bins) for ie in range(self.energy_bins)]
+        return log_likelihood, scaled
 
     def phase_pulse(self, expected: list[float]) -> list[float]:
         return [sum(expected[ip * self.energy_bins:(ip + 1) * self.energy_bins])

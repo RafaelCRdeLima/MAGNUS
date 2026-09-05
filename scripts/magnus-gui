@@ -1,0 +1,13 @@
+#!/bin/bash
+# Abre a interface gráfica do MAGNUS no ambiente que tem PySide6.
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ENV_NAME="${MAGNUS_ENV:-pulsaris-heasoft}"
+PYTHON="$HOME/micromamba/envs/$ENV_NAME/bin/python"
+if [[ ! -x "$PYTHON" ]]; then
+    echo "Ambiente '$ENV_NAME' não encontrado em: $PYTHON" >&2
+    echo "Defina MAGNUS_ENV com o nome do ambiente micromamba com PySide6." >&2
+    exit 1
+fi
+cd "$ROOT"
+exec "$PYTHON" -m magnus_gui "$@"

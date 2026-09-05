@@ -1,0 +1,17 @@
+:root {
+  --magnus-void:        #0B1020;
+  --magnus-panel:       #141C33;
+  --magnus-plate:       #0E1330;
+  --magnus-violet:      #7B4DF0;
+  --magnus-cyan:        #2ED3E0;
+  --magnus-magenta:     #F0479B;
+  --magnus-amber:       #F0A63C;
+  --magnus-text:        #E8EAF2;
+  --magnus-text-muted:  #8A93B2;
+  --magnus-core:        #241C4D;
+
+  --magnus-mode-o:      var(--magnus-cyan);
+  --magnus-mode-x:      var(--magnus-magenta);
+  --magnus-energy:      var(--magnus-amber);
+  --magnus-field:       var(--magnus-violet);
+}

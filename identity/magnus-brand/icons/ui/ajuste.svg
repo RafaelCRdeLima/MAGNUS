@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" role="img" aria-labelledby="t">
+  <title id="t">ajuste</title>
+  <g transform="translate(12 12) scale(0.72)">
+    <path d="M-13,9 L13,-9"/>
+    <circle cx="-9" cy="4" r="2.4" fill="#2ED3E0" stroke="none"/>
+    <circle cx="-3" cy="3" r="2.4" fill="#2ED3E0" stroke="none"/>
+    <circle cx="4" cy="-2" r="2.4" fill="#2ED3E0" stroke="none"/>
+    <circle cx="10" cy="-4" r="2.4" fill="#2ED3E0" stroke="none"/>
+  </g>
+</svg>

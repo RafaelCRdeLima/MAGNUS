@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 200" width="560" height="200" role="img" aria-labelledby="t">
+  <title id="t">Magnus — logotipo horizontal</title>
+  <g transform="rotate(-20 100 100)">
+    <path d="M100,74 C196,39 196,145 100,110" fill="none" stroke="#7B4DF0" stroke-width="2.4" stroke-linecap="round" opacity="0.65"/>
+    <path d="M100,74 C4,39 4,145 100,110" fill="none" stroke="#7B4DF0" stroke-width="2.4" stroke-linecap="round" opacity="0.65"/>
+    <path d="M100,74 C162,59 162,125 100,110" fill="none" stroke="#2ED3E0" stroke-width="3" stroke-linecap="round"/>
+    <path d="M100,74 C38,59 38,125 100,110" fill="none" stroke="#2ED3E0" stroke-width="3" stroke-linecap="round"/>
+    <path d="M100,74 C134,73 134,111 100,110" fill="none" stroke="#2ED3E0" stroke-width="3" stroke-linecap="round"/>
+    <path d="M100,74 C66,73 66,111 100,110" fill="none" stroke="#2ED3E0" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="100" cy="92" r="27" fill="none" stroke="#F0479B" stroke-width="3.6"/>
+    <circle cx="100" cy="92" r="18" fill="#241C4D"/>
+    <circle cx="100" cy="92" r="7" fill="#2ED3E0"/>
+  </g>
+  <text x="216" y="98" font-family="Poppins, Inter, sans-serif" font-weight="500" font-size="62" letter-spacing="9" fill="#E8EAF2">Magnus</text>
+  <text x="220" y="128" font-family="Poppins, Inter, sans-serif" font-weight="400" font-size="17" letter-spacing="1.6" fill="#8A93B2">atmosferas magnetizadas de estrelas de nêutrons</text>
+</svg>

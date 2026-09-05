@@ -376,6 +376,9 @@ class FitProblem:
         self.fit_light_curve = bool(request.get("fitLightCurve", False))
         # Spots de corpo negro (superfície condensada) sobre o fundo de atmosfera.
         self.blackbody_spots = bool(request.get("blackbodySpots", False))
+        # Modo de camadas: contínuo de corpo negro + feixe da atmosfera, em toda a
+        # superfície (atmosfera fina sobre condensada, à la Hambaryan).
+        self.layered_atmosphere = bool(request.get("layeredAtmosphere", False))
         self.instrument = str(request["instrument"])
         # Uma resposta enviada com os dados vence o catálogo: ela é *daquela*
         # observação, enquanto o perfil do manifesto é de uma configuração
@@ -674,6 +677,18 @@ class FitProblem:
             start = self.temperature_peaking if lo < self.temperature_peaking < hi else 0.25
             self.initial.append(min(max(start, lo + 1.0e-3), hi - 1.0e-3))
 
+        # Espessura efetiva f da atmosfera fina (0=condensada/corpo negro, 1=
+        # atmosfera cheia). Une a medida de B (no endurecimento) com o contínuo
+        # mole. Posição: DEPOIS de peaking, ANTES da colatitude.
+        self.atmosphere_fraction = float(request.get("atmosphereFraction", 1.0))
+        self.fit_atmosphere_fraction = bool(request.get("fitAtmosphereFraction", False))
+        if self.fit_atmosphere_fraction:
+            self.names.append("atmFraction")
+            self.bounds.append((0.0, 1.0))
+            self.steps.append(0.03)
+            start = self.atmosphere_fraction if 0.0 < self.atmosphere_fraction < 1.0 else 0.5
+            self.initial.append(min(max(start, 1.0e-3), 1.0 - 1.0e-3))
+
         # Inclinação do eixo do dipolo em relação ao de rotação. Livre, é ela que
         # faz o fundo pulsar suavemente sozinho (a atmosfera é anisotrópica em
         # theta_B), sem custo espectral — o mecanismo de pulso das XDINS. Posição
@@ -875,6 +890,10 @@ class FitProblem:
                             "--temperature-min-frac", str(self.temperature_min_frac)])
             if self.fit_temperature_peaking:
                 command.append("--fit-temperature-peaking")
+        if self.atmosphere_fraction < 1.0 or self.fit_atmosphere_fraction:
+            command.extend(["--atmosphere-fraction", str(self.atmosphere_fraction)])
+            if self.fit_atmosphere_fraction:
+                command.append("--fit-atmosphere-fraction")
         if self.fit_magnetic_colatitude:
             command.append("--fit-magnetic-colatitude")
         if self.fit_magnetic_azimuth:
@@ -908,6 +927,8 @@ class FitProblem:
                                                 ("theta", "phi", "radius", "temperature"))])
         if self.blackbody_spots:
             command.append("--blackbody-spots")
+        if self.layered_atmosphere:
+            command.append("--layered-atmosphere")
         return command
 
     def worker_line(self, values: list[float]) -> str:
@@ -940,6 +961,9 @@ class FitProblem:
             fields.append(values[cursor])
             cursor += 1
         if self.fit_temperature_peaking:
+            fields.append(values[cursor])
+            cursor += 1
+        if self.fit_atmosphere_fraction:
             fields.append(values[cursor])
             cursor += 1
         if self.fit_magnetic_colatitude:

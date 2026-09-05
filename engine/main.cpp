@@ -101,6 +101,20 @@ struct Config {
     // corpo negro. Motivação: a atmosfera de H é dura demais a alta energia; a
     // superfície condensada, mais mole, pode absorver esse excesso.
     bool blackbody_spots{false};
+    // Modo de camadas (atmosfera fina sobre superfície condensada, à la
+    // Hambaryan): em TODA a superfície o contínuo vira corpo negro (mole) e a
+    // atmosfera fina só imprime o FEIXE (o pulso) e a linha — o endurecimento
+    // espectral da tabela é dividido para fora. Quebra o trade-off de área do
+    // spot condensado: conserta o alta-energia sem diluir o pulso.
+    bool layered_atmosphere{false};
+    // Espessura efetiva da atmosfera fina, f in [0,1]: interpola o ENDURECIMENTO
+    // espectral entre corpo negro (f=0, condensada pura) e atmosfera cheia (f=1).
+    // O feixe (o pulso) é sempre mantido inteiro; só o contínuo médio-em-ângulo é
+    // escalado por f. É o parâmetro que une a medida de B (que vive no
+    // endurecimento) com o contínuo mole — o dado escolhe quanto de cada.
+    // --layered-atmosphere é o atalho para f=0.
+    double atmosphere_fraction{1.0};
+    bool fit_atmosphere_fraction{false};
     // Padrão de feixe I(mu) proporcional a 1 + a*mu, com mu o cosseno do ângulo
     // de emissão. a = 0 é a emissão isotrópica de sempre; a > 0 concentra ao
     // longo da normal (pencil), a < 0 achata contra a superfície (fan).
@@ -436,6 +450,9 @@ Config parse_args(int argc, char** argv) {
         else if (key == "--line2-depth") cfg.line2_depth = std::stod(value());
         else if (key == "--fit-line2") cfg.fit_line2 = true;
         else if (key == "--blackbody-spots") cfg.blackbody_spots = true;
+        else if (key == "--layered-atmosphere") { cfg.layered_atmosphere = true; cfg.atmosphere_fraction = 0.0; }
+        else if (key == "--atmosphere-fraction") cfg.atmosphere_fraction = std::stod(value());
+        else if (key == "--fit-atmosphere-fraction") cfg.fit_atmosphere_fraction = true;
         else if (key == "--fit-beaming") cfg.fit_beaming = true;
         else if (key == "--atmosphere") cfg.atmosphere_hardening = std::stod(value());
         else if (key == "--magnetic-field") cfg.magnetic_field_g = std::stod(value());
@@ -972,6 +989,10 @@ struct NsmaxgTable {
 // usariam o mesmo feixe, o que num dipolo é falso por dezenas de graus.
 struct AtmosphereTable {
     std::vector<float> log_b, log_t, log_g, theta_b_deg, mu, log_e, log_w;
+    //: Fluxo médio-em-ângulo por (B,T,g,theta_B,E), como log10 da razão para
+    //: corpo negro (sem o eixo mu). Serve ao modo de camadas: dividi-lo para fora
+    //: deixa o contínuo em corpo negro e preserva só o feixe.
+    std::vector<float> flux_log;
 
     bool loaded() const { return !log_w.empty(); }
 
@@ -1008,6 +1029,70 @@ struct AtmosphereTable {
             throw std::runtime_error("atmosphere table ends early: " + path);
         }
         if (!input) throw std::runtime_error("atmosphere table ends early: " + path);
+        precompute_flux();
+    }
+
+    //: Integra o feixe em mu para o fluxo médio (razão para corpo negro) em cada
+    //: (B,T,g,theta_B,E). Quadratura trapezoidal nos nós de mu, normalizada pela
+    //: mesma quadratura aplicada a w=1 — assim w constante devolve razão 1.
+    void precompute_flux() {
+        const std::size_t nB = log_b.size(), nT = log_t.size(), nG = log_g.size(),
+                          nb = theta_b_deg.size(), nm = mu.size(), ne = log_e.size();
+        std::vector<double> wtrap(nm, 0.0);
+        if (nm == 1) {
+            wtrap[0] = 1.0;
+        } else {
+            wtrap[0] = 0.5 * (mu[1] - mu[0]);
+            wtrap[nm - 1] = 0.5 * (mu[nm - 1] - mu[nm - 2]);
+            for (std::size_t m = 1; m + 1 < nm; ++m) wtrap[m] = 0.5 * (mu[m + 1] - mu[m - 1]);
+        }
+        double denom = 0.0;
+        for (std::size_t m = 0; m < nm; ++m) denom += mu[m] * wtrap[m];
+        flux_log.assign(nB * nT * nG * nb * ne, 0.0f);
+        for (std::size_t f = 0; f < nB; ++f)
+        for (std::size_t t = 0; t < nT; ++t)
+        for (std::size_t g = 0; g < nG; ++g)
+        for (std::size_t b = 0; b < nb; ++b)
+        for (std::size_t e = 0; e < ne; ++e) {
+            double num = 0.0;
+            for (std::size_t m = 0; m < nm; ++m) {
+                const double w = std::pow(10.0, static_cast<double>(
+                    log_w[((((((f * nT + t) * nG + g) * nb + b) * nm + m) * ne) + e)]));
+                num += w * mu[m] * wtrap[m];
+            }
+            const double ratio = denom > 0.0 ? num / denom : 1.0;
+            flux_log[((((f * nT + t) * nG + g) * nb + b) * ne) + e] =
+                static_cast<float>(std::log10(std::max(1.0e-30, ratio)));
+        }
+    }
+
+    //: log10 do fluxo médio-em-ângulo (razão para corpo negro), interpolado nos
+    //: cinco eixos sem mu. É o que o modo de camadas subtrai do log_ratio.
+    double flux_log_ratio(double energy_kev, double theta_b, double log_t_value,
+                          double log_g_value, double log_b_value) const {
+        if (flux_log.empty()) return 0.0;
+        std::size_t ifld, it, ig, ib, ie;
+        double wf, wt, wg, wb, we;
+        NsmaxgTable::bracket(log_b, log_b_value, ifld, wf);
+        NsmaxgTable::bracket(log_t, log_t_value, it, wt);
+        NsmaxgTable::bracket(log_g, log_g_value, ig, wg);
+        NsmaxgTable::bracket(theta_b_deg, theta_b, ib, wb);
+        NsmaxgTable::bracket(log_e, std::log10(std::max(1.0e-12, energy_kev)), ie, we);
+        const std::size_t nt = log_t.size(), ng = log_g.size(),
+                          nb = theta_b_deg.size(), ne = log_e.size();
+        auto at = [&](std::size_t f, std::size_t t, std::size_t g, std::size_t b,
+                      std::size_t e) {
+            return static_cast<double>(flux_log[((((f * nt + t) * ng + g) * nb + b) * ne) + e]);
+        };
+        double total = 0.0;
+        for (int df = 0; df < 2; ++df) { const double ff = df ? wf : 1.0 - wf; if (ff == 0.0) continue;
+        for (int dt = 0; dt < 2; ++dt) { const double ft = ff * (dt ? wt : 1.0 - wt); if (ft == 0.0) continue;
+        for (int dg = 0; dg < 2; ++dg) { const double fg = ft * (dg ? wg : 1.0 - wg); if (fg == 0.0) continue;
+        for (int db = 0; db < 2; ++db) { const double fb = fg * (db ? wb : 1.0 - wb); if (fb == 0.0) continue;
+        for (int de = 0; de < 2; ++de) { const double weight = fb * (de ? we : 1.0 - we);
+            if (weight != 0.0) total += weight * at(ifld + df, it + dt, ig + dg, ib + db, ie + de);
+        }}}}}
+        return total;
     }
 
     //: Interpolação nos cinco eixos, presa nas bordas em todos eles — a mesma
@@ -1941,16 +2026,23 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
                         beaming_factor(contribution.cos_emission, cfg.beaming_a,
                                        cfg.beaming_b);
                 } else if (use_atmosphere_table) {
-                    // Espectro E feixe da mesma tabela. lg w = 0 devolve o
-                    // corpo negro isotrópico exato, e é isso que o portão do
-                    // leitor mede.
+                    // Atmosfera de espessura efetiva f: mantém o feixe inteiro e
+                    // escala o endurecimento espectral (o fluxo médio-em-ângulo)
+                    // por f. f=1 é a atmosfera cheia (log w exato do portão);
+                    // f=0 é corpo negro + feixe (camadas). O dado escolhe f.
+                    const double lt = std::log10(std::max(1.0,
+                        contribution.temperature_mk * 1.0e6));
+                    double logw = atmosphere.log_ratio(
+                        emitted_energy, contribution.cos_emission,
+                        contribution.theta_b_deg, lt, log_g_value, log_b_value);
+                    if (cfg.atmosphere_fraction < 1.0) {
+                        logw -= (1.0 - cfg.atmosphere_fraction) *
+                            atmosphere.flux_log_ratio(emitted_energy,
+                                contribution.theta_b_deg, lt, log_g_value, log_b_value);
+                    }
                     base = blackbody_photon_intensity(emitted_energy,
                                                       contribution.temperature_mk) *
-                        std::pow(10.0, atmosphere.log_ratio(
-                            emitted_energy, contribution.cos_emission,
-                            contribution.theta_b_deg,
-                            std::log10(std::max(1.0, contribution.temperature_mk * 1.0e6)),
-                            log_g_value, log_b_value));
+                        std::pow(10.0, logw);
                 } else if (use_nsmaxg) {
                     // Espectro do NSMAXG, feixe do modelo de dois modos. Cada
                     // um traz o que o outro não tem, e a forma angular é
@@ -2108,6 +2200,7 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
               << ",\"redshift\":" << number(1.0 / std::sqrt(1.0 - u) - 1.0)
               << ",\"base_kt_keV\":" << number(cfg.base_temperature_mk * kt_kev_per_mk)
               << ",\"temperature_peaking\":" << number(cfg.temperature_peaking)
+              << ",\"atmosphere_fraction\":" << number(cfg.atmosphere_fraction)
               << ",\"images_used\":" << images_used
               << ",\"period_s\":" << number(cfg.period_s)
               << ",\"distance_kpc\":" << number(cfg.distance_kpc)
@@ -2268,6 +2361,17 @@ int run_fit_worker(const Config& base) {
                     throw std::runtime_error("fit worker received a negative peaking a");
                 }
                 cfg.temperature_peaking = peaking;
+            }
+            if (base.fit_atmosphere_fraction) {
+                double frac{};
+                if (!(input >> frac)) {
+                    throw std::runtime_error("fit worker expected the atmosphere fraction f");
+                }
+                if (!(frac >= 0.0 && frac <= 1.0)) {
+                    throw std::runtime_error("fit worker received an atmosphere fraction "
+                                             "outside [0,1]");
+                }
+                cfg.atmosphere_fraction = frac;
             }
             if (base.fit_magnetic_colatitude) {
                 double colat{};

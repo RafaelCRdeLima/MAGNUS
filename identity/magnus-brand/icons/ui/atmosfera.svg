@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" role="img" aria-labelledby="t">
+  <title id="t">atmosfera</title>
+  <g transform="translate(12 12) scale(0.72)">
+    <path d="M-14,10 A 16 16 0 0 1 14,10"/>
+    <path d="M-14,3 A 19 19 0 0 1 14,3" stroke="#2ED3E0"/>
+    <path d="M-14,-4 A 22 22 0 0 1 14,-4" stroke="#2ED3E0" opacity="0.6"/>
+  </g>
+</svg>

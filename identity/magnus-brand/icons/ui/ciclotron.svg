@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" role="img" aria-labelledby="t">
+  <title id="t">cíclotron</title>
+  <g transform="translate(12 12) scale(0.72)">
+    <path d="M-15,-6 H-9 V6 H-7 V-6 H-1 V6 H1 V-6 H7 V6 H9 V-6 H15"/>
+  </g>
+</svg>

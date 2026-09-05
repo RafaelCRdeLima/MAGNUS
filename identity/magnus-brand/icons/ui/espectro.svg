@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" role="img" aria-labelledby="t">
+  <title id="t">espectro</title>
+  <g transform="translate(12 12) scale(0.72)">
+    <path d="M-15,8 L-9,3 L-5,5 L-1,-9 L3,9 L7,-1 L15,3"/>
+    <path d="M-1,-9 L-1,-14" stroke="#2ED3E0"/>
+  </g>
+</svg>

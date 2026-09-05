@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" role="img" aria-labelledby="t">
+  <title id="t">exportar</title>
+  <g transform="translate(12 12) scale(0.72)">
+    <path d="M-12,3 V12 H12 V3"/>
+    <path d="M0,10 V-10" stroke="#2ED3E0"/>
+    <path d="M-5,-5 L0,-11 L5,-5" stroke="#2ED3E0"/>
+  </g>
+</svg>

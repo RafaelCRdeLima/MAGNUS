@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-labelledby="t">
+  <title id="t">Magnus — ícone do launcher, 32 px</title>
+  <rect width="32" height="32" rx="8" fill="#0E1330"/>
+  <g transform="translate(16 16) rotate(-20)">
+    <path d="M0,-8 C15,-14 15,14 0,8" fill="none" stroke="#2ED3E0" stroke-width="1.7" stroke-linecap="round"/>
+    <path d="M0,-8 C-15,-14 -15,14 0,8" fill="none" stroke="#2ED3E0" stroke-width="1.7" stroke-linecap="round"/>
+    <circle r="13" fill="none" stroke="#F0479B" stroke-width="1.8"/>
+    <circle r="8" fill="#0E1330"/>
+    <circle r="3.4" fill="#2ED3E0"/>
+  </g>
+</svg>

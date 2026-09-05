@@ -374,6 +374,8 @@ class FitProblem:
         # padrão de pulse-profile modeling (a forma fixa a geometria; o nível, a
         # normalização, vem do espectro). Ver Hambaryan et al. 2011.
         self.fit_light_curve = bool(request.get("fitLightCurve", False))
+        # Spots de corpo negro (superfície condensada) sobre o fundo de atmosfera.
+        self.blackbody_spots = bool(request.get("blackbodySpots", False))
         self.instrument = str(request["instrument"])
         # Uma resposta enviada com os dados vence o catálogo: ela é *daquela*
         # observação, enquanto o perfil do manifesto é de uma configuração
@@ -519,6 +521,21 @@ class FitProblem:
                                    self.energy_max)
             self.initial.extend([self.line_energy, self.line_width,
                                  self.line_depth if self.line_depth > 0.05 else 0.5])
+
+        # Segunda linha de absorção: estrutura complexa da RBS 1223 e/ou cíclotron
+        # de próton (~0,9 keV no campo ajustado), na região do excesso a alta
+        # energia. Vem no vetor LOGO APÓS a primeira linha, antes da atmosfera.
+        self.fit_line2 = bool(request.get("fitLine2", False))
+        self.line2_energy = float(request.get("line2Energy", 0.6))
+        self.line2_width = float(request.get("line2Width", 0.1))
+        self.line2_depth = float(request.get("line2Depth", 0.0))
+        if self.fit_line2:
+            self.names.extend(["line2Energy", "line2Width", "line2Depth"])
+            self.bounds.extend([(self.energy_min, self.energy_max), (0.02, 0.6), (0.0, 5.0)])
+            self.steps.extend([0.01, 0.01, 0.05])
+            self.line2_energy = min(max(self.line2_energy, self.energy_min), self.energy_max)
+            self.initial.extend([self.line2_energy, self.line2_width,
+                                 self.line2_depth if self.line2_depth > 0.05 else 0.5])
 
         self.fit_beaming = bool(request.get("fitBeaming", False))
         self.beaming = float(request.get("beaming", 0.0))
@@ -868,6 +885,12 @@ class FitProblem:
                             "--line-depth", str(self.line_depth)])
             if self.fit_line:
                 command.append("--fit-line")
+        if self.line2_depth > 0.0 or self.fit_line2:
+            command.extend(["--line2-energy", str(self.line2_energy),
+                            "--line2-width", str(self.line2_width),
+                            "--line2-depth", str(self.line2_depth)])
+            if self.fit_line2:
+                command.append("--fit-line2")
         if self.beaming != 0.0 or self.beaming2 != 0.0 or self.fit_beaming:
             command.extend(["--beaming", str(self.beaming),
                             "--beaming2", str(self.beaming2)])
@@ -883,6 +906,8 @@ class FitProblem:
         for spot in self.unpack_spots(self.initial):
             command.extend(["--spot", ",".join(str(spot[key]) for key in
                                                 ("theta", "phi", "radius", "temperature"))])
+        if self.blackbody_spots:
+            command.append("--blackbody-spots")
         return command
 
     def worker_line(self, values: list[float]) -> str:
@@ -900,6 +925,9 @@ class FitProblem:
         # divergir não dá erro — manda o valor errado no campo certo.
         cursor = 4 + self.spot_vector_length()
         if self.fit_line:
+            fields.extend(values[cursor:cursor + 3])
+            cursor += 3
+        if self.fit_line2:
             fields.extend(values[cursor:cursor + 3])
             cursor += 3
         if self.fit_atmosphere:

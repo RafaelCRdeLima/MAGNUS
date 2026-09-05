@@ -86,6 +86,21 @@ struct Config {
     double line_energy_kev{0.3};
     double line_width_kev{0.1};
     double line_depth{0.0};
+    // Segunda linha de absorção gaussiana. RBS 1223 mostra estrutura de absorção
+    // complexa (Hambaryan et al.: linhas em ~0,23 e ~0,46 keV); e no campo
+    // ajustado a linha de cíclotron de próton cai perto de ~0,9 keV, na região
+    // do excesso a alta energia. Esta segunda linha testa isso.
+    double line2_energy_kev{0.6};
+    double line2_width_kev{0.1};
+    double line2_depth{0.0};
+    bool fit_line2{false};
+    // Spots de CORPO NEGRO: quando ligado, os spots (spot_id>=0) emitem corpo
+    // negro puro em vez da atmosfera — uma calota de superfície CONDENSADA
+    // (blackbody-like, mais mole) por cima do fundo de atmosfera T(θ). A área do
+    // spot já é descontada do fundo por sample_full_sphere, então ali fica só o
+    // corpo negro. Motivação: a atmosfera de H é dura demais a alta energia; a
+    // superfície condensada, mais mole, pode absorver esse excesso.
+    bool blackbody_spots{false};
     // Padrão de feixe I(mu) proporcional a 1 + a*mu, com mu o cosseno do ângulo
     // de emissão. a = 0 é a emissão isotrópica de sempre; a > 0 concentra ao
     // longo da normal (pencil), a < 0 achata contra a superfície (fan).
@@ -416,6 +431,11 @@ Config parse_args(int argc, char** argv) {
         else if (key == "--beaming") cfg.beaming_a = std::stod(value());
         else if (key == "--beaming2") cfg.beaming_b = std::stod(value());
         else if (key == "--fit-line") cfg.fit_line = true;
+        else if (key == "--line2-energy") cfg.line2_energy_kev = std::stod(value());
+        else if (key == "--line2-width") cfg.line2_width_kev = std::stod(value());
+        else if (key == "--line2-depth") cfg.line2_depth = std::stod(value());
+        else if (key == "--fit-line2") cfg.fit_line2 = true;
+        else if (key == "--blackbody-spots") cfg.blackbody_spots = true;
         else if (key == "--fit-beaming") cfg.fit_beaming = true;
         else if (key == "--atmosphere") cfg.atmosphere_hardening = std::stod(value());
         else if (key == "--magnetic-field") cfg.magnetic_field_g = std::stod(value());
@@ -1912,7 +1932,15 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
                 // produz os dois. A linha continua por cima, porque é uma
                 // feição espectral que o modelo cinza não tem como gerar.
                 double base;
-                if (use_atmosphere_table) {
+                if (cfg.blackbody_spots && contribution.spot_id >= 0) {
+                    // Spot de superfície condensada: corpo negro puro (mais mole
+                    // que a atmosfera), com o feixe empírico (isotrópico por
+                    // padrão). A área já saiu do fundo, então não há dupla conta.
+                    base = blackbody_photon_intensity(emitted_energy,
+                                                      contribution.temperature_mk) *
+                        beaming_factor(contribution.cos_emission, cfg.beaming_a,
+                                       cfg.beaming_b);
+                } else if (use_atmosphere_table) {
                     // Espectro E feixe da mesma tabela. lg w = 0 devolve o
                     // corpo negro isotrópico exato, e é isso que o portão do
                     // leitor mede.
@@ -1949,7 +1977,9 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
                 }
                 const double emitted_intensity = base *
                     line_transmission(emitted_energy, cfg.line_energy_kev,
-                                      cfg.line_width_kev, cfg.line_depth);
+                                      cfg.line_width_kev, cfg.line_depth) *
+                    line_transmission(emitted_energy, cfg.line2_energy_kev,
+                                      cfg.line2_width_kev, cfg.line2_depth);
                 // I_N(E)/E^2 is invariant, hence the g^2 factor for photon intensity.
                 value += contribution.energy_shift_g * contribution.energy_shift_g *
                     emitted_intensity * contribution.solid_angle_sr;
@@ -2193,6 +2223,14 @@ int run_fit_worker(const Config& base) {
                 }
                 if (!(cfg.line_width_kev > 0.0 && cfg.line_depth >= 0.0)) {
                     throw std::runtime_error("fit worker received an invalid gaussian line");
+                }
+            }
+            if (base.fit_line2) {
+                if (!(input >> cfg.line2_energy_kev >> cfg.line2_width_kev >> cfg.line2_depth)) {
+                    throw std::runtime_error("fit worker expected the second gaussian line triplet");
+                }
+                if (!(cfg.line2_width_kev > 0.0 && cfg.line2_depth >= 0.0)) {
+                    throw std::runtime_error("fit worker received an invalid second gaussian line");
                 }
             }
             if (base.fit_atmosphere) {

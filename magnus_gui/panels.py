@@ -6,8 +6,10 @@ from pathlib import Path
 
 from PySide6.QtWidgets import (QWidget, QHBoxLayout, QVBoxLayout, QScrollArea,
                                QLabel, QPushButton, QComboBox, QSizePolicy, QGridLayout,
-                               QCheckBox, QSpinBox, QProgressBar, QFileDialog)
+                               QCheckBox, QSpinBox, QProgressBar, QFileDialog,
+                               QTableWidget, QTableWidgetItem, QHeaderView)
 from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QColor
 
 from . import theme as T
 from . import plots
@@ -283,6 +285,135 @@ class AjustePanel(QWidget):
         self.live.setText("erro: " + msg)
         self.btn_run.setEnabled(True); self.btn_cancel.setEnabled(False)
         if self.status_cb: self.status_cb("erro: " + msg)
+
+
+class ResultadosPanel(QWidget):
+    """Lê um ajuste terminado: tabela de parâmetros + pulso e espectro vs dados."""
+    def __init__(self, status_cb=None):
+        super().__init__()
+        self.status_cb = status_cb
+        self.result = None
+        root = QHBoxLayout(self); root.setContentsMargins(0, 0, 0, 0); root.setSpacing(0)
+
+        col = QWidget(); cl = QVBoxLayout(col); cl.setContentsMargins(14, 14, 14, 14); cl.setSpacing(11)
+        card = Card("Parâmetros", T.CYAN)
+        self.lbl_best = QLabel("nenhum ajuste carregado"); self.lbl_best.setObjectName("rowSub")
+        card.add(self.lbl_best)
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(["parâmetro", "mediana", "1σ", "rhat"])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setMinimumHeight(320)
+        card.add(self.table)
+        cl.addWidget(card)
+        btns = Card("Exportar", T.AMBER)
+        b_load = QPushButton("Carregar resultado…"); b_load.clicked.connect(self._load)
+        b_corner = QPushButton("Gerar cornerplot (PNG)"); b_corner.clicked.connect(self._corner)
+        b_csv = QPushButton("Exportar tabela (CSV)"); b_csv.clicked.connect(self._csv)
+        for b in (b_load, b_corner, b_csv): btns.add(b)
+        cl.addWidget(btns); cl.addStretch(1)
+        root.addWidget(_scroll(col))
+
+        stage = QWidget(); sl = QVBoxLayout(stage); sl.setContentsMargins(16, 16, 16, 16); sl.setSpacing(12)
+        head = QLabel("Resultados do ajuste"); head.setStyleSheet(f"color:{T.TEXT};font-size:15px;font-weight:600;background:transparent")
+        sl.addWidget(head)
+        row = QHBoxLayout(); row.setSpacing(12)
+        self.cv_pulse = plots.Canvas(); self.cv_spec = plots.Canvas()
+        for cv in (self.cv_pulse, self.cv_spec):
+            cv.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding); row.addWidget(cv)
+        sl.addLayout(row, 1)
+        root.addWidget(stage, 1)
+        for cv, m in ((self.cv_pulse, "pulso ajustado"), (self.cv_spec, "espectro ajustado")):
+            plots.draw_message(cv, m + " aparece ao carregar um ajuste")
+
+    def set_result(self, result: dict):
+        self.result = result
+        best = result.get("bestLogLikelihood", float("nan"))
+        self.lbl_best.setText(f"lnL {best:,.0f}  ·  {result.get('dimensions','?')} parâmetros")
+        summ = result.get("summary", [])
+        free = [s for s in summ if abs(s.get("upper", 0) - s.get("lower", 0)) > 1e-9 or True]
+        def num(v, default=float("nan")):
+            return v if isinstance(v, (int, float)) else default
+        self.table.setRowCount(len(free))
+        for i, s in enumerate(free):
+            med = num(s.get("median"))
+            up, lo_ = num(s.get("upper"), med), num(s.get("lower"), med)
+            sig = 0.5 * (up - lo_)
+            rhat = num(s.get("rhat"))
+            self.table.setItem(i, 0, QTableWidgetItem(str(s.get("name", ""))))
+            self.table.setItem(i, 1, QTableWidgetItem(f"{med:.4g}" if med == med else "—"))
+            self.table.setItem(i, 2, QTableWidgetItem(f"±{sig:.2g}" if sig == sig else "—"))
+            it = QTableWidgetItem(f"{rhat:.2f}" if rhat == rhat else "—")
+            if rhat == rhat and rhat > 1.6:
+                it.setForeground(QColor(T.AMBER))
+            elif rhat == rhat:
+                it.setForeground(QColor(T.CYAN))
+            self.table.setItem(i, 3, it)
+        self._draw()
+        if self.status_cb: self.status_cb(f"resultado carregado · lnL {best:,.0f}")
+
+    def _draw(self):
+        try:
+            import numpy as np
+            r = self.result; nph, nen = r["phaseBins"], r["energyBins"]
+            obs = np.array(r["observed"], float).reshape(nph, nen)
+            exp = np.array(r["expected"], float).reshape(nph, nen)
+            lo, le = obs.sum(1), exp.sum(1); so, se = obs.sum(0), exp.sum(0)
+            ph = (np.arange(nph) + 0.5) / nph
+            ph2 = np.concatenate([ph, ph + 1])
+            ax = self.cv_pulse.ax; self.cv_pulse.clear()
+            ax.errorbar(ph2, np.concatenate([lo, lo]), yerr=np.sqrt(np.concatenate([lo, lo])),
+                        fmt="o", ms=3, color=T.TEXT, label="dados")
+            ax.plot(ph2, np.concatenate([le, le]), color=T.CYAN, lw=2, label="modelo")
+            ax.set_title("Pulso", fontsize=10); ax.set_xlabel("fase"); ax.legend(fontsize=8)
+            self.cv_pulse.fig.tight_layout(); self.cv_pulse.draw()
+            en = np.linspace(r.get("energyMin", 0.15), r.get("energyMax", 1.2), nen)
+            ax2 = self.cv_spec.ax; self.cv_spec.clear()
+            ax2.errorbar(en, so, yerr=np.sqrt(np.maximum(so, 1)), fmt="o", ms=3, color=T.TEXT, label="dados")
+            ax2.plot(en, se, color=T.CYAN, lw=2, label="modelo")
+            ax2.set_yscale("log"); ax2.set_title("Espectro", fontsize=10); ax2.set_xlabel("keV"); ax2.legend(fontsize=8)
+            self.cv_spec.fig.tight_layout(); self.cv_spec.draw()
+        except Exception as e:
+            plots.draw_message(self.cv_pulse, f"erro ao desenhar: {e}")
+
+    def _load(self):
+        import json
+        p, _ = QFileDialog.getOpenFileName(self, "resultado.json", str(ROOT_EXPLORA()), "JSON (*.json)")
+        if p:
+            try:
+                self.set_result(json.loads(Path(p).read_text()))
+            except Exception as e:
+                if self.status_cb: self.status_cb(f"erro ao carregar: {e}")
+
+    def _corner(self):
+        if not self.result:
+            return
+        import json, tempfile, subprocess
+        d = Path(tempfile.mkdtemp(prefix="magnus_corner_"))
+        (d / "r.json").write_text(json.dumps(self.result))
+        png = d / "corner.png"
+        from .backend import ROOT
+        try:
+            subprocess.run([_python(), str(ROOT / "scripts" / "cornerplot.py"),
+                            str(d / "r.json"), str(png)], check=True, capture_output=True, text=True)
+            import os
+            os.system(f'xdg-open "{png}" 2>/dev/null &')
+            if self.status_cb: self.status_cb(f"cornerplot salvo: {png}")
+        except Exception as e:
+            if self.status_cb: self.status_cb(f"corner falhou: {e}")
+
+    def _csv(self):
+        if not self.result:
+            return
+        p, _ = QFileDialog.getSaveFileName(self, "Salvar tabela", "parametros.csv", "CSV (*.csv)")
+        if not p:
+            return
+        lines = ["parametro,mediana,sigma,rhat"]
+        for s in self.result.get("summary", []):
+            med = s.get("median", ""); sig = 0.5 * (s.get("upper", 0) - s.get("lower", 0))
+            lines.append(f"{s.get('name','')},{med},{sig},{s.get('rhat','')}")
+        Path(p).write_text("\n".join(lines))
+        if self.status_cb: self.status_cb(f"tabela salva: {p}")
 
 
 def _python():

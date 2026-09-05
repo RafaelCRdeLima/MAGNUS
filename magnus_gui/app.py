@@ -8,7 +8,7 @@ from PySide6.QtCore import Qt, QSize
 
 from . import theme as T
 from . import brand
-from .panels import ModeloPanel, AjustePanel, PlaceholderPanel
+from .panels import ModeloPanel, AjustePanel, ResultadosPanel, PlaceholderPanel
 
 
 class MainWindow(QMainWindow):
@@ -62,6 +62,7 @@ class MainWindow(QMainWindow):
     # ---- abas ----
     def _tabs(self):
         tabs = QTabWidget()
+        self.tabs = tabs
         tabs.setIconSize(QSize(19, 19))
 
         self.modelo = ModeloPanel(status_cb=self._set_status)
@@ -73,7 +74,9 @@ class MainWindow(QMainWindow):
             "Mapa de temperatura T(θ) na esfera — o rotador oblíquo.",
         ]), brand.icon("atmosfera"), "  Atmosfera")
 
-        self.ajuste = AjustePanel(self.modelo, status_cb=self._set_status)
+        self.resultados = ResultadosPanel(status_cb=self._set_status)
+        self.ajuste = AjustePanel(self.modelo, status_cb=self._set_status,
+                                  on_result=self._on_fit_result)
         tabs.addTab(self.ajuste, brand.icon("ajuste"), "  Ajuste")
 
         tabs.addTab(PlaceholderPanel("Dados", [
@@ -81,14 +84,14 @@ class MainWindow(QMainWindow):
             "Co-adicionar observações por cross-correlação da forma do pulso.",
         ]), brand.icon("dados"), "  Dados")
 
-        tabs.addTab(PlaceholderPanel("Resultados", [
-            "Cornerplot, tabela de parâmetros (mediana, 1σ, rhat).",
-            "Bandas 1σ/2σ do pulso e do espectro sobre os dados.",
-            "Comparar modelos e exportar figuras, tabela e o pedido.",
-        ]), brand.icon("resultados"), "  Resultados")
+        tabs.addTab(self.resultados, brand.icon("resultados"), "  Resultados")
 
         tabs.setCurrentIndex(0)
         return tabs
+
+    def _on_fit_result(self, result):
+        self.resultados.set_result(result)
+        self.tabs.setCurrentWidget(self.resultados)
 
     # ---- barra de status ----
     def _statusbar(self):

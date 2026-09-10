@@ -84,6 +84,7 @@ struct Config {
     // Linha de absorção gaussiana na superfície, opcional. Profundidade zero a
     // desliga, que é o padrão: o corpo negro puro continua sendo o modelo base.
     double line_energy_kev{0.3};
+    bool line_cyclotron{false};
     double line_width_kev{0.1};
     double line_depth{0.0};
     // Segunda linha de absorção gaussiana. RBS 1223 mostra estrutura de absorção
@@ -101,6 +102,7 @@ struct Config {
     // corpo negro. Motivação: a atmosfera de H é dura demais a alta energia; a
     // superfície condensada, mais mole, pode absorver esse excesso.
     bool blackbody_spots{false};
+    bool spot_overlay{false};
     // Modo de camadas (atmosfera fina sobre superfície condensada, à la
     // Hambaryan): em TODA a superfície o contínuo vira corpo negro (mole) e a
     // atmosfera fina só imprime o FEIXE (o pulso) e a linha — o endurecimento
@@ -440,6 +442,7 @@ Config parse_args(int argc, char** argv) {
         else if (key == "--dead-time-us") cfg.instrument_dead_time_us = std::stod(value());
         else if (key == "--nh") cfg.nh_1e22 = std::stod(value());
         else if (key == "--line-energy") cfg.line_energy_kev = std::stod(value());
+        else if (key == "--line-cyclotron") cfg.line_cyclotron = true;
         else if (key == "--line-width") cfg.line_width_kev = std::stod(value());
         else if (key == "--line-depth") cfg.line_depth = std::stod(value());
         else if (key == "--beaming") cfg.beaming_a = std::stod(value());
@@ -450,6 +453,7 @@ Config parse_args(int argc, char** argv) {
         else if (key == "--line2-depth") cfg.line2_depth = std::stod(value());
         else if (key == "--fit-line2") cfg.fit_line2 = true;
         else if (key == "--blackbody-spots") cfg.blackbody_spots = true;
+        else if (key == "--spot-overlay") cfg.spot_overlay = true;
         else if (key == "--layered-atmosphere") { cfg.layered_atmosphere = true; cfg.atmosphere_fraction = 0.0; }
         else if (key == "--atmosphere-fraction") cfg.atmosphere_fraction = std::stod(value());
         else if (key == "--fit-atmosphere-fraction") cfg.fit_atmosphere_fraction = true;
@@ -1575,12 +1579,37 @@ class InstrumentResponse {
             (rows_[hi].area_cm2 - rows_[lo].area_cm2);
         auto add_row = [&](const RedistributionRow& row, double weight) {
             for (const auto& entry : row.entries) {
-                const double measured_energy = 0.5 *
-                    (static_cast<double>(entry.energy_min_kev) + entry.energy_max_kev);
-                const auto bin = std::upper_bound(output_edges.begin(), output_edges.end(), measured_energy);
-                if (bin == output_edges.begin() || bin == output_edges.end()) continue;
-                const std::size_t index = static_cast<std::size_t>(bin - output_edges.begin() - 1);
-                result.channel_probability[index] += weight * entry.probability;
+                const double e_lo = static_cast<double>(entry.energy_min_kev);
+                const double e_hi = static_cast<double>(entry.energy_max_kev);
+                const double span_ch = e_hi - e_lo;
+                if (!(span_ch > 0.0)) {
+                    // Canal nativo degenerado: cai no bin do centro.
+                    const double measured_energy = 0.5 * (e_lo + e_hi);
+                    const auto bin = std::upper_bound(output_edges.begin(), output_edges.end(), measured_energy);
+                    if (bin == output_edges.begin() || bin == output_edges.end()) continue;
+                    const std::size_t index = static_cast<std::size_t>(bin - output_edges.begin() - 1);
+                    result.channel_probability[index] += weight * entry.probability;
+                    continue;
+                }
+                // Reparte a probabilidade do canal nativo entre os bins de saída
+                // pela fração de sobreposição de [e_lo,e_hi] com cada bin. Jogar
+                // tudo no bin do centro (o que se fazia) quantiza a redistribuição
+                // e serrilha o espectro dobrado quando a largura do canal nativo
+                // não casa com a do bin de saída; repartir por sobreposição
+                // conserva a probabilidade e alisa o degrau.
+                auto start = std::upper_bound(output_edges.begin(), output_edges.end(), e_lo);
+                if (start != output_edges.begin()) --start;
+                for (auto edge = start; edge + 1 < output_edges.end(); ++edge) {
+                    const double b_lo = *edge;
+                    const double b_hi = *(edge + 1);
+                    if (b_lo >= e_hi) break;
+                    const double lo = std::max(e_lo, b_lo);
+                    const double hi = std::min(e_hi, b_hi);
+                    if (hi <= lo) continue;
+                    const std::size_t index = static_cast<std::size_t>(edge - output_edges.begin());
+                    result.channel_probability[index] +=
+                        weight * entry.probability * (hi - lo) / span_ch;
+                }
             }
         };
         add_row(rows_[lo], 1.0 - fraction);
@@ -1881,9 +1910,14 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
     // vêm por cima: os ladrilhos do fundo que caem dentro de um spot já foram
     // descartados por sample_full_sphere, então cada pedaço de superfície emite
     // uma vez só — o fundo onde não há spot, o spot onde há.
+    //
+    // Em modo OVERLAY (--spot-overlay) o fundo NÃO é subtraído sob os spots: a
+    // atmosfera cobre a estrela inteira e o corpo negro do spot é somado POR
+    // CIMA, uma componente extra localizada em vez de substituir a atmosfera.
     if (cfg.base_temperature_mk > 0.0) {
         const int base_bands = std::clamp(2 * cfg.surface_rings, 16, 60);
-        const auto base = sample_full_sphere(cfg.base_temperature_mk, base_bands, cfg.spots);
+        const std::vector<Spot> subtract = cfg.spot_overlay ? std::vector<Spot>{} : cfg.spots;
+        const auto base = sample_full_sphere(cfg.base_temperature_mk, base_bands, subtract);
         // Lei T(theta): a>0 liga a distribuição dipolar (polos quentes, equador
         // frio); a=0 devolve o fundo uniforme. cos(theta_mag)=normal·eixo_B.
         const double a = cfg.temperature_peaking;
@@ -2067,8 +2101,14 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
                         beaming_factor(contribution.cos_emission, cfg.beaming_a,
                                        cfg.beaming_b);
                 }
+                // Modo cíclotron: a energia de REPOUSO da linha vem do campo
+                // (E_cp = 0.63*(B/1e14) keV, próton) em vez de ser livre. O
+                // redshift entra sozinho pelo g-shift (emitted = observado*(1+z)),
+                // então a feição observada fica em E_cp/(1+z) e vincula B e z.
+                const double line_E = cfg.line_cyclotron
+                    ? 0.63 * cfg.magnetic_field_g / 1.0e14 : cfg.line_energy_kev;
                 const double emitted_intensity = base *
-                    line_transmission(emitted_energy, cfg.line_energy_kev,
+                    line_transmission(emitted_energy, line_E,
                                       cfg.line_width_kev, cfg.line_depth) *
                     line_transmission(emitted_energy, cfg.line2_energy_kev,
                                       cfg.line2_width_kev, cfg.line2_depth);

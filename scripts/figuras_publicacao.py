@@ -99,7 +99,9 @@ def lightcurve(LC, lo, nph, out):
     ax.set_xlabel("Rotational phase")
     ax.set_ylabel("Counts")
     ax.set_xlim(0, 2)
-    ax.legend(loc="upper right", fontsize=11)
+    ax.legend(loc="lower right", fontsize=9.5, frameon=True, framealpha=0.9,
+              facecolor="white", edgecolor="none", borderpad=0.6,
+              labelspacing=0.35, handlelength=1.6)
     _finish(ax)
     fig.tight_layout()
     fig.savefig(out.with_suffix(".pdf")); fig.savefig(out.with_suffix(".png"), dpi=200)

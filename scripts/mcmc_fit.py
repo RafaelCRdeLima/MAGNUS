@@ -376,6 +376,8 @@ class FitProblem:
         self.fit_light_curve = bool(request.get("fitLightCurve", False))
         # Spots de corpo negro (superfície condensada) sobre o fundo de atmosfera.
         self.blackbody_spots = bool(request.get("blackbodySpots", False))
+        self.spot_overlay = bool(request.get("spotOverlay", False))
+        self.line_cyclotron = bool(request.get("lineCyclotron", False))
         # Modo de camadas: contínuo de corpo negro + feixe da atmosfera, em toda a
         # superfície (atmosfera fina sobre condensada, à la Hambaryan).
         self.layered_atmosphere = bool(request.get("layeredAtmosphere", False))
@@ -465,6 +467,10 @@ class FitProblem:
             self.steps[0] = 0.01
             self.initial[0] = (2.0 * _GM_SUN_C2_KM * self.initial[0]
                                / self.initial[1])  # M inicial → u inicial
+        # Priors gaussianos informados, somados ao log-posterior (não são caixa).
+        # Ex.: {"mass": [1.4, 0.2]} impõe M ~ N(1.4, 0.2) da população de estrelas
+        # de nêutrons — quebra a degenerescência M-R quando o dado só prende z.
+        self.gaussian_priors = dict(request.get("gaussianPriors", {}))
         self.spot_count = int(request["spotCount"])
         # Ligado por omissão: sem isto o R-hat não desce, por mais iterações
         # que se dê. Medido nesta observação, com 400 iterações: 9,19 sem a
@@ -829,6 +835,19 @@ class FitProblem:
                 return False
         return True
 
+    def extra_log_prior(self, values: list[float]) -> float:
+        """Termo gaussiano informado somado ao log-posterior (0 se não houver)."""
+        total = 0.0
+        mp = self.gaussian_priors.get("mass")
+        if mp:
+            mu, sigma = float(mp[0]), float(mp[1])
+            if self.fit_compactness:
+                mass = values[0] * values[1] / (2.0 * _GM_SUN_C2_KM)
+            else:
+                mass = values[0]
+            total += -0.5 * ((mass - mu) / sigma) ** 2
+        return total
+
     def unpack_spots(self, values: list[float]) -> list[dict]:
         phase_offset = values[3]
         cursor = 4
@@ -927,6 +946,10 @@ class FitProblem:
                                                 ("theta", "phi", "radius", "temperature"))])
         if self.blackbody_spots:
             command.append("--blackbody-spots")
+        if self.spot_overlay:
+            command.append("--spot-overlay")
+        if self.line_cyclotron:
+            command.append("--line-cyclotron")
         if self.layered_atmosphere:
             command.append("--layered-atmosphere")
         return command
@@ -1068,14 +1091,16 @@ class FitProblem:
             if return_model or return_pulse:
                 return -math.inf, None
             return -math.inf
+        extra = self.extra_log_prior(values)
         try:
             if return_model or return_pulse:
                 log_likelihood, expected = self.score_document(
                     worker.evaluate(self.worker_line(values)), True)
+                log_likelihood += extra
                 if return_model:
                     return log_likelihood, expected
                 return log_likelihood, self.phase_pulse(expected) if expected else None
-            return self.score_document(worker.evaluate(self.worker_line(values)))
+            return self.score_document(worker.evaluate(self.worker_line(values))) + extra
         except (BrokenPipeError, json.JSONDecodeError, OSError, RuntimeError):
             if return_model or return_pulse:
                 return -math.inf, None
@@ -1179,11 +1204,25 @@ def draw_stretch(rng: random.Random, scale: float) -> float:
 def run_ensemble(problem: FitProblem, pool: WorkerPool, walkers: int, iterations: int,
                  burn_in: int, seed: int, stretch_scale: float = 2.0,
                  checkpoint_path: str | None = None,
-                 checkpoint_every: int = 50) -> dict:
-    """Goodman-Weare red/blue stretch move with parallel half-ensemble updates."""
+                 checkpoint_every: int = 50,
+                 resume_states: list[list[float]] | None = None) -> dict:
+    """Goodman-Weare red/blue stretch move with parallel half-ensemble updates.
+
+    Se `resume_states` vier (as posições finais de uma corrida anterior), o
+    enxame nasce EXATAMENTE onde a corrida parou, em vez de ser sorteado da
+    priori. Goodman-Weare é sem memória — só o estado atual dos caminhantes
+    importa — então isso continua a mesma cadeia, sem desperdiçar o que já
+    misturou. Use com burn_in=0 (já está equilibrado)."""
     rng = random.Random(seed)
     dimensions = len(problem.names)
-    states = [draw_initial_state(problem, rng) for _ in range(walkers)]
+    if resume_states is not None:
+        if len(resume_states) != walkers:
+            raise RuntimeError(
+                f"resumeFrom traz {len(resume_states)} caminhantes, mas a corrida "
+                f"pede {walkers}; use o mesmo numero de walkers ao retomar.")
+        states = [list(s) for s in resume_states]
+    else:
+        states = [draw_initial_state(problem, rng) for _ in range(walkers)]
     initial_results = pool.evaluate(problem, states, with_pulse=True)
     logps = [result[0] for result in initial_results]
     pulses = [result[1] for result in initial_results]
@@ -1316,13 +1355,35 @@ def main() -> None:
     workers = max(1, min(walkers, int(request.get("workers", min(4, walkers)))))
     seed = int(request.get("seed", 2026))
     stretch_scale = max(1.1, min(5.0, float(request.get("stretchScale", 2.0))))
+    # Retomada: carrega as posições finais dos walkers de um checkpoint anterior
+    # e continua a mesma cadeia (ver run_ensemble). Reordena as colunas para os
+    # nomes desta corrida, por segurança.
+    resume_states = None
+    resume_from = request.get("resumeFrom")
+    if resume_from:
+        import sys
+        import numpy as _np
+        ck = _np.load(resume_from, allow_pickle=True)
+        ck_names = [str(x) for x in ck["names"]]
+        ck_samples = ck["samples"]  # (walkers, iters, dims)
+        last = ck_samples[:, -1, :]
+        index = [ck_names.index(n) for n in problem.names]
+        resume_states = [[float(last[w, j]) for j in index]
+                         for w in range(last.shape[0])]
+        walkers = len(resume_states)
+        if walkers % 2:
+            walkers = walkers - 1
+            resume_states = resume_states[:walkers]
+        print(f"retomando de {resume_from}: {walkers} caminhantes, "
+              f"iter de partida {ck_samples.shape[1]}", file=sys.stderr, flush=True)
     started = time.monotonic()
     pool = WorkerPool(problem, workers)
     try:
         result = run_ensemble(problem, pool, walkers, iterations, burn_in,
                               seed, stretch_scale,
                               checkpoint_path=request.get("checkpointPath"),
-                              checkpoint_every=int(request.get("checkpointEvery", 50)))
+                              checkpoint_every=int(request.get("checkpointEvery", 50)),
+                              resume_states=resume_states)
         all_samples = [sample for trajectory in result["trajectories"]
                        for sample in trajectory]
         all_logp = [value for trajectory in result["trajectory_logps"]

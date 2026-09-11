@@ -471,6 +471,10 @@ class FitProblem:
         # Ex.: {"mass": [1.4, 0.2]} impõe M ~ N(1.4, 0.2) da população de estrelas
         # de nêutrons — quebra a degenerescência M-R quando o dado só prende z.
         self.gaussian_priors = dict(request.get("gaussianPriors", {}))
+        # Piso de massa: exclui solucoes sub-solares (M < massFloor Msun), que nao
+        # correspondem a estrelas de neutrons reais. Nao molda a forma do posterior
+        # dentro do fisico; so remove o inexistente.
+        self.mass_floor = float(request.get("massFloor", 0.0))
         self.spot_count = int(request["spotCount"])
         # Ligado por omissão: sem isto o R-hat não desce, por mais iterações
         # que se dê. Medido nesta observação, com 400 iterações: 9,19 sem a
@@ -683,6 +687,39 @@ class FitProblem:
             start = self.temperature_peaking if lo < self.temperature_peaking < hi else 0.25
             self.initial.append(min(max(start, lo + 1.0e-3), hi - 1.0e-3))
 
+        # SEGUNDO polo de Perez-Azorin (modelo de dois polos de Hambaryan): a
+        # hemisfera oposta recebe seu proprio (T_p2, a2). Posicao: DEPOIS de
+        # peaking, ANTES de atmFraction (a mesma no motor e em worker_line).
+        self.base_temperature2 = float(request.get("baseTemperature2", 0.0))
+        self.fit_base_temperature2 = bool(request.get("fitBaseTemperature2", False))
+        if self.fit_base_temperature2:
+            lo, hi = request.get("baseTemperature2Range", (0.02, 0.5))
+            self.names.append("baseKT2")
+            self.bounds.append((float(lo), float(hi)))
+            self.steps.append(min(0.01, 0.25 * (hi - lo)))
+            start = self.base_temperature2 if self.base_temperature2 > 0 else 0.5 * (lo + hi)
+            self.initial.append(min(max(start, lo + 1.0e-3), hi - 1.0e-3))
+        self.temperature_peaking2 = float(request.get("temperaturePeaking2", 0.0))
+        self.fit_temperature_peaking2 = bool(request.get("fitTemperaturePeaking2", False))
+        if self.fit_temperature_peaking2:
+            lo, hi = request.get("temperaturePeaking2Range", (0.0, 4.0))
+            self.names.append("peaking2")
+            self.bounds.append((float(lo), float(hi)))
+            self.steps.append(min(0.05, 0.1 * (hi - lo)))
+            start = self.temperature_peaking2 if lo < self.temperature_peaking2 < hi else 0.25
+            self.initial.append(min(max(start, lo + 1.0e-3), hi - 1.0e-3))
+        # beta: desvio da antipodalidade do polo 2 (graus), no plano magneto-rotacional.
+        # Posicao: DEPOIS de peaking2, ANTES de atmFraction (igual no motor e worker_line).
+        self.pole2_tilt = float(request.get("pole2Tilt", 0.0))
+        self.fit_pole2_tilt = bool(request.get("fitPole2Tilt", False))
+        if self.fit_pole2_tilt:
+            lo, hi = request.get("pole2TiltRange", (-90.0, 90.0))
+            self.names.append("poleTilt2")
+            self.bounds.append((float(lo), float(hi)))
+            self.steps.append(min(3.0, 0.1 * (hi - lo)))
+            start = self.pole2_tilt if lo < self.pole2_tilt < hi else 0.0
+            self.initial.append(min(max(start, lo + 1.0e-3), hi - 1.0e-3))
+
         # Espessura efetiva f da atmosfera fina (0=condensada/corpo negro, 1=
         # atmosfera cheia). Une a medida de B (no endurecimento) com o contínuo
         # mole. Posição: DEPOIS de peaking, ANTES da colatitude.
@@ -836,16 +873,19 @@ class FitProblem:
         return True
 
     def extra_log_prior(self, values: list[float]) -> float:
-        """Termo gaussiano informado somado ao log-posterior (0 se não houver)."""
+        """Termos extra do log-posterior: piso de massa (duro) e prior gaussiano."""
         total = 0.0
         mp = self.gaussian_priors.get("mass")
-        if mp:
-            mu, sigma = float(mp[0]), float(mp[1])
+        if mp or self.mass_floor > 0.0:
             if self.fit_compactness:
                 mass = values[0] * values[1] / (2.0 * _GM_SUN_C2_KM)
             else:
                 mass = values[0]
-            total += -0.5 * ((mass - mu) / sigma) ** 2
+            if self.mass_floor > 0.0 and mass < self.mass_floor:
+                return -math.inf
+            if mp:
+                mu, sigma = float(mp[0]), float(mp[1])
+                total += -0.5 * ((mass - mu) / sigma) ** 2
         return total
 
     def unpack_spots(self, values: list[float]) -> list[dict]:
@@ -909,6 +949,20 @@ class FitProblem:
                             "--temperature-min-frac", str(self.temperature_min_frac)])
             if self.fit_temperature_peaking:
                 command.append("--fit-temperature-peaking")
+        if self.base_temperature2 > 0.0 or self.fit_base_temperature2:
+            start = (self.initial[self.names.index("baseKT2")]
+                     if self.fit_base_temperature2 else self.base_temperature2)
+            command.extend(["--base-kt2-kev", str(start)])
+            if self.fit_base_temperature2:
+                command.append("--fit-base-temperature2")
+        if self.temperature_peaking2 > 0.0 or self.fit_temperature_peaking2:
+            command.extend(["--temperature-peaking2", str(self.temperature_peaking2)])
+            if self.fit_temperature_peaking2:
+                command.append("--fit-temperature-peaking2")
+        if self.pole2_tilt != 0.0 or self.fit_pole2_tilt:
+            command.extend(["--pole2-tilt", str(self.pole2_tilt)])
+            if self.fit_pole2_tilt:
+                command.append("--fit-pole2-tilt")
         if self.atmosphere_fraction < 1.0 or self.fit_atmosphere_fraction:
             command.extend(["--atmosphere-fraction", str(self.atmosphere_fraction)])
             if self.fit_atmosphere_fraction:
@@ -941,9 +995,14 @@ class FitProblem:
                 # relativos à raiz DELE.
                 base = ROOT if (ROOT / p[field]).is_file() else PULSARIS
                 command.extend([flag, str(base / p[field])])
-        for spot in self.unpack_spots(self.initial):
+        spot_list = self.unpack_spots(self.initial)
+        for spot in spot_list:
             command.extend(["--spot", ",".join(str(spot[key]) for key in
                                                 ("theta", "phi", "radius", "temperature"))])
+        if not spot_list:
+            # sem spots: impede o motor de criar o spot default (senao o
+            # fit-worker esperaria 4 valores de spot e o protocolo desalinha).
+            command.append("--no-spots")
         if self.blackbody_spots:
             command.append("--blackbody-spots")
         if self.spot_overlay:
@@ -984,6 +1043,15 @@ class FitProblem:
             fields.append(values[cursor])
             cursor += 1
         if self.fit_temperature_peaking:
+            fields.append(values[cursor])
+            cursor += 1
+        if self.fit_base_temperature2:
+            fields.append(values[cursor])
+            cursor += 1
+        if self.fit_temperature_peaking2:
+            fields.append(values[cursor])
+            cursor += 1
+        if self.fit_pole2_tilt:
             fields.append(values[cursor])
             cursor += 1
         if self.fit_atmosphere_fraction:

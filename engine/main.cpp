@@ -103,6 +103,9 @@ struct Config {
     // superfície condensada, mais mole, pode absorver esse excesso.
     bool blackbody_spots{false};
     bool spot_overlay{false};
+    // Sem spots: quando ligado (--no-spots), NÃO cria o spot default. Necessário
+    // para a superfície de dois polos de Pérez-Azorín, que é toda no "fundo".
+    bool no_spots{false};
     // Modo de camadas (atmosfera fina sobre superfície condensada, à la
     // Hambaryan): em TODA a superfície o contínuo vira corpo negro (mole) e a
     // atmosfera fina só imprime o FEIXE (o pulso) e a linha — o endurecimento
@@ -154,6 +157,21 @@ struct Config {
     double temperature_peaking{0.0};       // o parâmetro `a`
     double temperature_min_frac{0.3};      // T_min / T_p (Pérez-Azorín ~0,3)
     bool fit_temperature_peaking{false};
+    // SEGUNDO polo de Pérez-Azorín (modelo de dois polos de Hambaryan et al. 2011,
+    // Eqs. 4-5): a hemisfera cmag<0 (em torno do polo oposto) recebe seu PRÓPRIO
+    // par (T_p2, a2), de modo que os dois polos podem ser DESIGUAIS e a superfície
+    // fica suave (gradiente), não casquetes de borda dura. Ligado quando
+    // base_temperature2_mk>0; senão a lei de um polo (simétrica) vale como antes.
+    double base_temperature2_mk{0.0};      // T_p2 (polo 2), em MK
+    bool fit_base_temperature2{false};
+    double temperature_peaking2{0.0};      // a2 (polo 2)
+    bool fit_temperature_peaking2{false};
+    // Desvio da ANTIPODALIDADE do polo 2: seu eixo e -B girado por beta no plano
+    // magneto-rotacional (o de B e Omega). beta=0 => polos antipodais (dipolo).
+    // beta!=0 => polos nao-antipodais, com a assimetria geometrica que os
+    // casquetes livres tinham, agora dentro da lei suave de Perez-Azorin.
+    double pole2_tilt_deg{0.0};
+    bool fit_pole2_tilt{false};
     // Inclinação do eixo do dipolo em relação ao eixo de rotação. Quando LIVRE,
     // o fundo axissimétrico deixa de ser: a atmosfera é anisotrópica em theta_B,
     // então um dipolo inclinado faz o disco visível varrer theta_B ao girar e o
@@ -454,6 +472,7 @@ Config parse_args(int argc, char** argv) {
         else if (key == "--fit-line2") cfg.fit_line2 = true;
         else if (key == "--blackbody-spots") cfg.blackbody_spots = true;
         else if (key == "--spot-overlay") cfg.spot_overlay = true;
+        else if (key == "--no-spots") cfg.no_spots = true;
         else if (key == "--layered-atmosphere") { cfg.layered_atmosphere = true; cfg.atmosphere_fraction = 0.0; }
         else if (key == "--atmosphere-fraction") cfg.atmosphere_fraction = std::stod(value());
         else if (key == "--fit-atmosphere-fraction") cfg.fit_atmosphere_fraction = true;
@@ -467,6 +486,13 @@ Config parse_args(int argc, char** argv) {
         else if (key == "--temperature-peaking") cfg.temperature_peaking = std::stod(value());
         else if (key == "--temperature-min-frac") cfg.temperature_min_frac = std::stod(value());
         else if (key == "--fit-temperature-peaking") cfg.fit_temperature_peaking = true;
+        else if (key == "--base-kt2-kev") cfg.base_temperature2_mk = std::stod(value()) / kt_kev_per_mk;
+        else if (key == "--base-temp2-mk") cfg.base_temperature2_mk = std::stod(value());
+        else if (key == "--temperature-peaking2") cfg.temperature_peaking2 = std::stod(value());
+        else if (key == "--fit-base-temperature2") cfg.fit_base_temperature2 = true;
+        else if (key == "--fit-temperature-peaking2") cfg.fit_temperature_peaking2 = true;
+        else if (key == "--pole2-tilt") cfg.pole2_tilt_deg = std::stod(value());
+        else if (key == "--fit-pole2-tilt") cfg.fit_pole2_tilt = true;
         else if (key == "--fit-magnetic-colatitude") cfg.fit_magnetic_colatitude = true;
         else if (key == "--fit-magnetic-azimuth") cfg.fit_magnetic_azimuth = true;
         else if (key == "--anisotropy-table") cfg.anisotropy_table = value();
@@ -501,7 +527,7 @@ Config parse_args(int argc, char** argv) {
             throw std::runtime_error("unknown argument: " + key);
         }
     }
-    if (cfg.spots.empty()) cfg.spots.push_back({30.0, 0.0, 10.0, 2.5});
+    if (cfg.spots.empty() && !cfg.no_spots) cfg.spots.push_back({30.0, 0.0, 10.0, 2.5});
     if (cfg.mass_solar <= 0 || cfg.radius_km <= 0 || cfg.distance_kpc <= 0 || cfg.period_s <= 0) {
         throw std::runtime_error("mass, radius, distance and period must be positive");
     }
@@ -1920,17 +1946,51 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
         const auto base = sample_full_sphere(cfg.base_temperature_mk, base_bands, subtract);
         // Lei T(theta): a>0 liga a distribuição dipolar (polos quentes, equador
         // frio); a=0 devolve o fundo uniforme. cos(theta_mag)=normal·eixo_B.
-        const double a = cfg.temperature_peaking;
-        const double t_pole4 = std::pow(cfg.base_temperature_mk, 4.0);
+        // Lei de Perez-Azorin por polo. Um polo (base_temperature2<=0): a lei
+        // simetrica de sempre. DOIS polos (Hambaryan): polo 1 no eixo do dipolo
+        // (+B), polo 2 no eixo -B GIRADO por beta (pole2_tilt) no plano
+        // magneto-rotacional. Cada polo contribui so no seu hemisferio proximo
+        // (c>0), somando em T^4; piso T_min unico. beta=0 => polos antipodais
+        // (cada ponto sob um so polo, exatamente como a lei de um dipolo).
+        const double a1 = cfg.temperature_peaking;
+        const double t_pole1_4 = std::pow(cfg.base_temperature_mk, 4.0);
+        const bool two_pole = cfg.base_temperature2_mk > 0.0;
+        const double a2 = two_pole ? cfg.temperature_peaking2 : a1;
+        const double t_pole2_4 = std::pow(two_pole ? cfg.base_temperature2_mk
+                                                    : cfg.base_temperature_mk, 4.0);
         const double t_min4 = std::pow(std::max(0.0, cfg.temperature_min_frac)
                                        * cfg.base_temperature_mk, 4.0);
+        // Eixo do polo 2: -B girado por beta em torno de (B x z), no plano de B e
+        // do eixo de rotacao z. beta=0 => -B (antipodal). B x z_hat = (By,-Bx,0).
+        Vec3 axis2{-magnetic_axis.x, -magnetic_axis.y, -magnetic_axis.z};
+        if (two_pole && std::abs(cfg.pole2_tilt_deg) > 1.0e-9) {
+            Vec3 k{magnetic_axis.y, -magnetic_axis.x, 0.0};
+            const double kn = std::sqrt(dot(k, k));
+            if (kn > 1.0e-12) {
+                k = (1.0 / kn) * k;
+                const double b = deg(cfg.pole2_tilt_deg), cb = std::cos(b), sb = std::sin(b);
+                const Vec3 v = axis2;
+                const Vec3 kxv{k.y * v.z - k.z * v.y, k.z * v.x - k.x * v.z,
+                               k.x * v.y - k.y * v.x};
+                const double kdv = dot(k, v);
+                axis2 = {v.x * cb + kxv.x * sb + k.x * kdv * (1.0 - cb),
+                         v.y * cb + kxv.y * sb + k.y * kdv * (1.0 - cb),
+                         v.z * cb + kxv.z * sb + k.z * kdv * (1.0 - cb)};
+            }
+        }
+        auto lobe = [](double c, double a, double tp4) -> double {
+            if (c <= 0.0) return 0.0;
+            const double c2 = c * c, s2 = std::max(0.0, 1.0 - c2);
+            return (a > 0.0) ? tp4 * c2 / (c2 + a * s2) : tp4;
+        };
         for (const auto& sample : base) {
             const double cmag = dot(sample.normal, magnetic_axis);
             double temperature = cfg.base_temperature_mk;
-            if (a > 0.0) {
-                const double c2 = cmag * cmag;
-                const double s2 = std::max(0.0, 1.0 - c2);
-                const double t4 = t_pole4 * c2 / (c2 + a * s2) + t_min4;
+            if (a1 > 0.0 || two_pole) {
+                const double c1 = cmag;
+                const double c2 = two_pole ? dot(sample.normal, axis2) : -cmag;
+                const double t4 = t_min4 + lobe(c1, a1, t_pole1_4)
+                                  + lobe(c2, a2, t_pole2_4);
                 temperature = std::pow(std::max(1.0e-8, t4), 0.25);
             }
             surface.push_back({sample.normal, sample.weight, temperature,
@@ -2401,6 +2461,33 @@ int run_fit_worker(const Config& base) {
                     throw std::runtime_error("fit worker received a negative peaking a");
                 }
                 cfg.temperature_peaking = peaking;
+            }
+            if (base.fit_base_temperature2) {
+                double base_kt2_kev{};
+                if (!(input >> base_kt2_kev)) {
+                    throw std::runtime_error("fit worker expected the second-pole kT");
+                }
+                if (!(base_kt2_kev > 0.0)) {
+                    throw std::runtime_error("fit worker received a non-positive second-pole kT");
+                }
+                cfg.base_temperature2_mk = base_kt2_kev / kt_kev_per_mk;
+            }
+            if (base.fit_temperature_peaking2) {
+                double peaking2{};
+                if (!(input >> peaking2)) {
+                    throw std::runtime_error("fit worker expected the second-pole peaking a2");
+                }
+                if (!(peaking2 >= 0.0)) {
+                    throw std::runtime_error("fit worker received a negative second-pole a2");
+                }
+                cfg.temperature_peaking2 = peaking2;
+            }
+            if (base.fit_pole2_tilt) {
+                double tilt{};
+                if (!(input >> tilt)) {
+                    throw std::runtime_error("fit worker expected the second-pole tilt beta");
+                }
+                cfg.pole2_tilt_deg = tilt;
             }
             if (base.fit_atmosphere_fraction) {
                 double frac{};

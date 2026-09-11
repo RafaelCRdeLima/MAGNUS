@@ -172,6 +172,8 @@ struct Config {
     // casquetes livres tinham, agora dentro da lei suave de Perez-Azorin.
     double pole2_tilt_deg{0.0};
     bool fit_pole2_tilt{false};
+    double pole2_tilt2_deg{0.0};
+    bool fit_pole2_tilt2{false};
     // Inclinação do eixo do dipolo em relação ao eixo de rotação. Quando LIVRE,
     // o fundo axissimétrico deixa de ser: a atmosfera é anisotrópica em theta_B,
     // então um dipolo inclinado faz o disco visível varrer theta_B ao girar e o
@@ -493,6 +495,8 @@ Config parse_args(int argc, char** argv) {
         else if (key == "--fit-temperature-peaking2") cfg.fit_temperature_peaking2 = true;
         else if (key == "--pole2-tilt") cfg.pole2_tilt_deg = std::stod(value());
         else if (key == "--fit-pole2-tilt") cfg.fit_pole2_tilt = true;
+        else if (key == "--pole2-tilt2") cfg.pole2_tilt2_deg = std::stod(value());
+        else if (key == "--fit-pole2-tilt2") cfg.fit_pole2_tilt2 = true;
         else if (key == "--fit-magnetic-colatitude") cfg.fit_magnetic_colatitude = true;
         else if (key == "--fit-magnetic-azimuth") cfg.fit_magnetic_azimuth = true;
         else if (key == "--anisotropy-table") cfg.anisotropy_table = value();
@@ -1978,6 +1982,21 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
                          v.z * cb + kxv.z * sb + k.z * kdv * (1.0 - cb)};
             }
         }
+        // Segundo deslocamento (gamma = pole2_tilt2): gira o eixo do polo 2 em
+        // torno do PROPRIO eixo magnetico, varrendo o azimute do desvio. Com beta
+        // e gamma o polo 2 aponta para qualquer direcao; gamma=0 recupera o
+        // modelo de um so beta (e beta=0 recupera o antipodal).
+        if (two_pole && std::abs(cfg.pole2_tilt2_deg) > 1.0e-9) {
+            const Vec3 k = magnetic_axis;  // ja unitario
+            const double g = deg(cfg.pole2_tilt2_deg), cg = std::cos(g), sg = std::sin(g);
+            const Vec3 v = axis2;
+            const Vec3 kxv{k.y * v.z - k.z * v.y, k.z * v.x - k.x * v.z,
+                           k.x * v.y - k.y * v.x};
+            const double kdv = dot(k, v);
+            axis2 = {v.x * cg + kxv.x * sg + k.x * kdv * (1.0 - cg),
+                     v.y * cg + kxv.y * sg + k.y * kdv * (1.0 - cg),
+                     v.z * cg + kxv.z * sg + k.z * kdv * (1.0 - cg)};
+        }
         auto lobe = [](double c, double a, double tp4) -> double {
             if (c <= 0.0) return 0.0;
             const double c2 = c * c, s2 = std::max(0.0, 1.0 - c2);
@@ -2488,6 +2507,13 @@ int run_fit_worker(const Config& base) {
                     throw std::runtime_error("fit worker expected the second-pole tilt beta");
                 }
                 cfg.pole2_tilt_deg = tilt;
+            }
+            if (base.fit_pole2_tilt2) {
+                double tilt2{};
+                if (!(input >> tilt2)) {
+                    throw std::runtime_error("fit worker expected the second-pole tilt gamma");
+                }
+                cfg.pole2_tilt2_deg = tilt2;
             }
             if (base.fit_atmosphere_fraction) {
                 double frac{};

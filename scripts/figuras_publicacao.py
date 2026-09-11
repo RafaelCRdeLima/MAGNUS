@@ -59,6 +59,13 @@ def sample_models(result_dir: Path, n: int):
     problem = m.FitProblem(req, events, meta, m.read_background(Path(req["_background"]))
                            if req.get("_background") else None)
     nph, nen = problem.phase_bins, problem.energy_bins
+    emin = req.get("energyMin", 0.15); emax = req.get("energyMax", 1.2)
+    # Recorte da banda dura: plota (e soma o pulso) apenas nos bins de energia
+    # cujo CENTRO fica abaixo de energyFitMax, coerente com a mascara do ajuste.
+    efm = float(req.get("energyFitMax", emax))
+    width = (emax - emin) / nen
+    centers = emin + (np.arange(nen) + 0.5) * width
+    emask = centers < efm
     rng = np.random.default_rng(11)
     draw = fin[rng.choice(len(fin), size=min(n, len(fin)), replace=False)]
     w = m.EngineWorker(problem.worker_command())
@@ -68,12 +75,11 @@ def sample_models(result_dir: Path, n: int):
         if exp is None:
             continue
         g = np.array(exp, float).reshape(nph, nen)
-        LC.append(g.sum(1)); SP.append(g.sum(0))
+        LC.append(g[:, emask].sum(1)); SP.append(g[:, emask].sum(0))
     w.close()
     obs = np.array(problem.observed, float).reshape(nph, nen)
-    emin = req.get("energyMin", 0.15); emax = req.get("energyMax", 1.2)
-    return (np.array(LC), np.array(SP), obs.sum(1), obs.sum(0),
-            nph, np.linspace(emin, emax, nen))
+    return (np.array(LC), np.array(SP), obs[:, emask].sum(1), obs[:, emask].sum(0),
+            nph, centers[emask])
 
 
 def _guess_events(req):

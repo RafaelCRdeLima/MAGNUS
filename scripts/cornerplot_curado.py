@@ -9,7 +9,7 @@ from matplotlib.colors import LinearSegmentedColormap
 from scipy.ndimage import gaussian_filter
 
 GM = 1.4766250385
-FITDIR = "/home/rafael/Codes/MAGNUS/exploracoes/ajuste_beta_2026-09-11"
+FITDIR = "/home/rafael/Codes/MAGNUS/exploracoes/ajuste_beta_1keV_2026-09-11"
 d = np.load(f"{FITDIR}/ckpt.npz", allow_pickle=True)
 S = d["samples"]; nm = [str(x) for x in d["names"]]
 flat = S[:, S.shape[1]//2:, :].reshape(-1, len(nm))

@@ -408,6 +408,16 @@ class FitProblem:
                 raise ValueError(f"unknown instrument profile: {self.instrument}")
             self.profile = profiles[self.instrument]
         self.energy_width = (self.energy_max - self.energy_min) / self.energy_bins
+        # Recorte da banda dura: so entram na verossimilhanca os bins de energia
+        # cujo CENTRO fica abaixo de energyFitMax (default = energy_max, ou seja,
+        # sem recorte). Mantem o grid e as dimensoes intactos, entao o resumeFrom
+        # continua valido e nao e preciso re-binar os dados combinados.
+        self.energy_fit_max = float(request.get("energyFitMax", self.energy_max))
+        self._fit_bins = [ip * self.energy_bins + ie
+                          for ip in range(self.phase_bins)
+                          for ie in range(self.energy_bins)
+                          if self.energy_min + (ie + 0.5) * self.energy_width
+                          < self.energy_fit_max]
         self.observed = [0] * (self.phase_bins * self.energy_bins)
         selected = 0
         phase_reference = float(request.get("phaseReference", 0.0))
@@ -720,6 +730,19 @@ class FitProblem:
             start = self.pole2_tilt if lo < self.pole2_tilt < hi else 0.0
             self.initial.append(min(max(start, lo + 1.0e-3), hi - 1.0e-3))
 
+        # gamma: segundo deslocamento do polo 2 (azimute do desvio em torno do
+        # eixo magnetico). DEPOIS de poleTilt2, ANTES de atmFraction (igual no
+        # motor e no worker_line). gamma=0 recupera o modelo de um so beta.
+        self.pole2_tilt2 = float(request.get("pole2Tilt2", 0.0))
+        self.fit_pole2_tilt2 = bool(request.get("fitPole2Tilt2", False))
+        if self.fit_pole2_tilt2:
+            lo, hi = request.get("pole2Tilt2Range", (-90.0, 90.0))
+            self.names.append("poleTilt2b")
+            self.bounds.append((float(lo), float(hi)))
+            self.steps.append(min(3.0, 0.1 * (hi - lo)))
+            start = self.pole2_tilt2 if lo < self.pole2_tilt2 < hi else 0.0
+            self.initial.append(min(max(start, lo + 1.0e-3), hi - 1.0e-3))
+
         # Espessura efetiva f da atmosfera fina (0=condensada/corpo negro, 1=
         # atmosfera cheia). Une a medida de B (no endurecimento) com o contínuo
         # mole. Posição: DEPOIS de peaking, ANTES da colatitude.
@@ -963,6 +986,10 @@ class FitProblem:
             command.extend(["--pole2-tilt", str(self.pole2_tilt)])
             if self.fit_pole2_tilt:
                 command.append("--fit-pole2-tilt")
+        if self.pole2_tilt2 != 0.0 or self.fit_pole2_tilt2:
+            command.extend(["--pole2-tilt2", str(self.pole2_tilt2)])
+            if self.fit_pole2_tilt2:
+                command.append("--fit-pole2-tilt2")
         if self.atmosphere_fraction < 1.0 or self.fit_atmosphere_fraction:
             command.extend(["--atmosphere-fraction", str(self.atmosphere_fraction)])
             if self.fit_atmosphere_fraction:
@@ -1054,6 +1081,9 @@ class FitProblem:
         if self.fit_pole2_tilt:
             fields.append(values[cursor])
             cursor += 1
+        if self.fit_pole2_tilt2:
+            fields.append(values[cursor])
+            cursor += 1
         if self.fit_atmosphere_fraction:
             fields.append(values[cursor])
             cursor += 1
@@ -1091,7 +1121,8 @@ class FitProblem:
                     for ip in range(self.phase_bins) for ie in range(self.energy_bins)]
         if self.fit_light_curve:
             return self._score_light_curve(grid, represented_time, return_model)
-        log_likelihood = sum(n * math.log(mu) - mu for n, mu in zip(self.observed, expected))
+        log_likelihood = sum(self.observed[b] * math.log(expected[b]) - expected[b]
+                             for b in self._fit_bins)
         return (log_likelihood, expected) if return_model else log_likelihood
 
     def _score_light_curve(self, grid, represented_time,

@@ -378,6 +378,9 @@ class FitProblem:
         self.blackbody_spots = bool(request.get("blackbodySpots", False))
         self.spot_overlay = bool(request.get("spotOverlay", False))
         self.line_cyclotron = bool(request.get("lineCyclotron", False))
+        # |B| variavel na superficie (lei dipolar, a_B=0.25 = dipolo centrado):
+        # B passa a ser o campo POLAR e a linha ciclotron vira blend. None = uniforme.
+        self.field_peaking = request.get("fieldPeaking", None)
         # Modo de camadas: contínuo de corpo negro + feixe da atmosfera, em toda a
         # superfície (atmosfera fina sobre condensada, à la Hambaryan).
         self.layered_atmosphere = bool(request.get("layeredAtmosphere", False))
@@ -1036,6 +1039,8 @@ class FitProblem:
             command.append("--spot-overlay")
         if self.line_cyclotron:
             command.append("--line-cyclotron")
+        if self.field_peaking is not None:
+            command.extend(["--field-peaking", str(float(self.field_peaking))])
         if self.layered_atmosphere:
             command.append("--layered-atmosphere")
         return command

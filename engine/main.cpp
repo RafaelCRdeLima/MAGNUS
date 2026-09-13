@@ -132,6 +132,13 @@ struct Config {
     // opacidade. Sem os dois a atmosfera fica isotrópica, que é o modelo cinza
     // de antes — e ele não consegue fazer leque nenhum.
     double magnetic_field_g{0.0};
+    // |B| variável na superfície, pela mesma lei dipolar da temperatura
+    // (Hambaryan Eq. 5): |B| = B_p sqrt(cos^2 th + a_B sin^2 th), com th até o
+    // polo mais próximo. a_B = 1/4 é o dipolo centrado (B_eq = B_p/2); a_B = 1
+    // devolve o campo uniforme. Negativo (padrão) = campo uniforme, como antes.
+    // Com ele, B_p passa a ser o campo POLAR: a tabela e a linha ciclotron
+    // usam o B LOCAL de cada elemento, e a feição vira um blend sobre o disco.
+    double field_peaking{-1.0};
     // Ajustar o campo B: quando ligado, o worker recebe lg B por avaliação e a
     // tabela de atmosfera é interpolada no eixo de B (formato MAGNUSI2). Sem
     // isso, B é fixo pela tabela. O bloco vem DEPOIS da atmosfera e ANTES do
@@ -330,6 +337,8 @@ struct SpectralSurfaceSample {
     //: vez, quando a superfície é amostrada.
     double theta_b_deg{};
     int spot_id{};
+    //: lg|B| local (G) quando o campo varia na superfície; 0 = usar o global.
+    double log_b{0.0};
 };
 
 struct RayContribution {
@@ -344,6 +353,7 @@ struct RayContribution {
     double cos_emission{};
     int spot_id{};
     int image_order{};
+    double log_b{0.0};
 };
 
 std::vector<SurfaceSample> sample_spot(const Spot& spot, int rings) {
@@ -481,6 +491,7 @@ Config parse_args(int argc, char** argv) {
         else if (key == "--fit-beaming") cfg.fit_beaming = true;
         else if (key == "--atmosphere") cfg.atmosphere_hardening = std::stod(value());
         else if (key == "--magnetic-field") cfg.magnetic_field_g = std::stod(value());
+        else if (key == "--field-peaking") cfg.field_peaking = std::stod(value());
         else if (key == "--fit-log-field") cfg.fit_log_field = true;
         else if (key == "--base-temp-mk") cfg.base_temperature_mk = std::stod(value());
         else if (key == "--base-kt-kev") cfg.base_temperature_mk = std::stod(value()) / kt_kev_per_mk;
@@ -1393,7 +1404,7 @@ bool trace_spectral_contribution(const Config& cfg, const RayTable& rays, double
     result = {arrival_phase, emission_phase, jacobian, solid_angle,
               gravitational_shift * doppler, delay_s, sample.temperature_mk,
               sample.theta_b_deg, std::max(0.0, std::cos(alpha)), sample.spot_id,
-              image_order};
+              image_order, sample.log_b};
     return result.solid_angle_sr > 0.0 && result.energy_shift_g > 0.0;
 }
 
@@ -1944,6 +1955,14 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
     // Em modo OVERLAY (--spot-overlay) o fundo NÃO é subtraído sob os spots: a
     // atmosfera cobre a estrela inteira e o corpo negro do spot é somado POR
     // CIMA, uma componente extra localizada em vez de substituir a atmosfera.
+    // lg|B| local: lei dipolar em torno do polo mais próximo (c = cos até ele,
+    // c<=0 => equador magnético). 0 quando o campo é uniforme (field_peaking<0).
+    auto local_log_b = [&cfg](double c) -> double {
+        if (cfg.field_peaking < 0.0 || cfg.magnetic_field_g <= 0.0) return 0.0;
+        const double cc = std::max(0.0, c), s2 = std::max(0.0, 1.0 - cc * cc);
+        return std::log10(cfg.magnetic_field_g *
+                          std::sqrt(cc * cc + cfg.field_peaking * s2));
+    };
     if (cfg.base_temperature_mk > 0.0) {
         const int base_bands = std::clamp(2 * cfg.surface_rings, 16, 60);
         const std::vector<Spot> subtract = cfg.spot_overlay ? std::vector<Spot>{} : cfg.spots;
@@ -2005,23 +2024,25 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
         for (const auto& sample : base) {
             const double cmag = dot(sample.normal, magnetic_axis);
             double temperature = cfg.base_temperature_mk;
+            const double c1 = cmag;
+            const double c2 = two_pole ? dot(sample.normal, axis2) : -cmag;
             if (a1 > 0.0 || two_pole) {
-                const double c1 = cmag;
-                const double c2 = two_pole ? dot(sample.normal, axis2) : -cmag;
                 const double t4 = t_min4 + lobe(c1, a1, t_pole1_4)
                                   + lobe(c2, a2, t_pole2_4);
                 temperature = std::pow(std::max(1.0e-8, t4), 0.25);
             }
             surface.push_back({sample.normal, sample.weight, temperature,
-                               dipole_theta_b_deg(cmag), -1});
+                               dipole_theta_b_deg(cmag), -1,
+                               local_log_b(std::max(c1, c2))});
         }
     }
     for (std::size_t spot_id = 0; spot_id < cfg.spots.size(); ++spot_id) {
         const auto samples = sample_spot(cfg.spots[spot_id], cfg.surface_rings);
         for (const auto& sample : samples) {
+            const double cmag = dot(sample.normal, magnetic_axis);
             surface.push_back({sample.normal, sample.weight, cfg.spots[spot_id].temperature_mk,
-                               dipole_theta_b_deg(dot(sample.normal, magnetic_axis)),
-                               static_cast<int>(spot_id)});
+                               dipole_theta_b_deg(cmag), static_cast<int>(spot_id),
+                               local_log_b(std::abs(cmag))});
         }
     }
 
@@ -2126,6 +2147,9 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
             double value = 0.0;
             for (const auto& contribution : contributions) {
                 const double emitted_energy = observed_energy / contribution.energy_shift_g;
+                // Campo LOCAL do elemento (lei dipolar) ou o global, se uniforme.
+                const bool local_field = contribution.log_b > 0.0;
+                const double lb = local_field ? contribution.log_b : log_b_value;
                 // A atmosfera substitui corpo negro E feixe de uma vez: ela
                 // produz os dois. A linha continua por cima, porque é uma
                 // feição espectral que o modelo cinza não tem como gerar.
@@ -2147,11 +2171,11 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
                         contribution.temperature_mk * 1.0e6));
                     double logw = atmosphere.log_ratio(
                         emitted_energy, contribution.cos_emission,
-                        contribution.theta_b_deg, lt, log_g_value, log_b_value);
+                        contribution.theta_b_deg, lt, log_g_value, lb);
                     if (cfg.atmosphere_fraction < 1.0) {
                         logw -= (1.0 - cfg.atmosphere_fraction) *
                             atmosphere.flux_log_ratio(emitted_energy,
-                                contribution.theta_b_deg, lt, log_g_value, log_b_value);
+                                contribution.theta_b_deg, lt, log_g_value, lb);
                     }
                     base = blackbody_photon_intensity(emitted_energy,
                                                       contribution.temperature_mk) *
@@ -2166,7 +2190,7 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
                         std::pow(10.0, nsmaxg.log_ratio(
                             emitted_energy,
                             std::log10(std::max(1.0, contribution.temperature_mk * 1.0e6)),
-                            log_b_value, log_g_value)) *
+                            lb, log_g_value)) *
                         two_mode_angular_shape(emitted_energy, contribution.temperature_mk,
                                                contribution.cos_emission, hardening,
                                                anisotropy);
@@ -2184,8 +2208,11 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
                 // (E_cp = 0.63*(B/1e14) keV, próton) em vez de ser livre. O
                 // redshift entra sozinho pelo g-shift (emitted = observado*(1+z)),
                 // então a feição observada fica em E_cp/(1+z) e vincula B e z.
+                // Com campo variável, a linha de cada elemento fica no E_cp do
+                // SEU B: a feição integrada é um blend sobre o disco visível.
                 const double line_E = cfg.line_cyclotron
-                    ? 0.63 * cfg.magnetic_field_g / 1.0e14 : cfg.line_energy_kev;
+                    ? 0.63 * (local_field ? std::pow(10.0, lb) : cfg.magnetic_field_g) / 1.0e14
+                    : cfg.line_energy_kev;
                 const double emitted_intensity = base *
                     line_transmission(emitted_energy, line_E,
                                       cfg.line_width_kev, cfg.line_depth) *

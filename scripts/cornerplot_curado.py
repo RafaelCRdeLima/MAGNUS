@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Corner plot suave (contornos de densidade preenchidos, 1sigma/2sigma) da
 corrida z-ciclotron (continuacao). Sem aparencia granulada."""
+import sys
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")
@@ -9,10 +10,22 @@ from matplotlib.colors import LinearSegmentedColormap
 from scipy.ndimage import gaussian_filter
 
 GM = 1.4766250385
-FITDIR = "/home/rafael/Codes/MAGNUS/exploracoes/ajuste_beta_13obs_2026-09-12"
+# Uso: python3 scripts/cornerplot_curado.py [dir_do_ajuste]; sem argumento, o fiducial.
+FITDIR = sys.argv[1].rstrip("/") if len(sys.argv) > 1 else \
+    "/home/rafael/Codes/MAGNUS/exploracoes/ajuste_beta_13obs_2026-09-12"
 d = np.load(f"{FITDIR}/ckpt.npz", allow_pickle=True)
 S = d["samples"]; nm = [str(x) for x in d["names"]]
-flat = S[:, S.shape[1]//2:, :].reshape(-1, len(nm))
+half = S.shape[1] // 2
+# Caminhantes PRESOS num minimo local (lnL mediano > 10 abaixo do conjunto na
+# metade usada) nao sao posteriori: o stretch move nao salta entre modos e eles
+# ficam parados. Sao descartados; o numero e impresso para constar.
+if "logps" in d:
+    lp = d["logps"][:, half:]
+    keep = np.nanmedian(lp, axis=1) > np.nanmedian(lp) - 10.0
+    if (~keep).any():
+        print(f"corner: {int((~keep).sum())}/{len(keep)} caminhantes presos descartados (lnL < mediana-10)")
+    S = S[keep]
+flat = S[:, half:, :].reshape(-1, len(nm))
 col = lambda k: flat[:, nm.index(k)]
 u = col("compactness"); R = col("radius")
 z = 1/np.sqrt(1-u) - 1

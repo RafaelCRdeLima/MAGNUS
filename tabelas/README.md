@@ -12,3 +12,16 @@
 
 Regeneráveis por `scripts/tabela_estagio2.py` (~75 s por modelo) e
 `scripts/exporta_formatos.py`.
+
+## Grades com eixo de campo (formato MAGNUSI2)
+
+- `magnus_campoBg.magnus` — lg B = {12,5; 13,0; 13,5; 13,8} × 12 T (5,7–6,8) ×
+  lg g {13,8; 14,0; 14,2; 14,4; 14,6} × θ_B {0, 30, 60} × 8 μ × 160 E, totalmente
+  ionizada (`scripts/tabela_campo_g_grade.py`, 720 modelos, ~2,6 h com 5 workers).
+  **Superada**: com a feição ciclotron dentro da tabela, 4 nós em B a 0,3–0,5 dex
+  geram duas depressões espúrias na interpolação (ver
+  `exploracoes/tabela_densa_2026-09-13/compara_tabelas_B.png`).
+- `magnus_campoBg_denso.magnus` — **a tabela de produção da RBS 1223 (13/09/2026)**:
+  lg B = 13,20…13,90 a 0,05 dex (15 nós) × 7 T (5,7–6,3) × lg g {14,0; 14,2; 14,4}
+  × θ_B {0, 30, 60} × 8 μ × 160 E (`scripts/tabela_campo_g_denso.py`, 945 modelos,
+  ~3,7 h com 5 workers, pior erro de fluxo 1,5 %). Fora da grade o motor grampeia.

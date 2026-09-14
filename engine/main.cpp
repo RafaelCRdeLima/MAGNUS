@@ -139,6 +139,10 @@ struct Config {
     // Com ele, B_p passa a ser o campo POLAR: a tabela e a linha ciclotron
     // usam o B LOCAL de cada elemento, e a feição vira um blend sobre o disco.
     double field_peaking{-1.0};
+    // Dipolo de Schwarzschild: em vez do a_B = 1/4 plano, a razao B_eq/B_p sai da
+    // solucao exterior relativistica no u corrente (0,58 em u = 0,46), e o
+    // angulo alpha_B acompanha. B_p continua sendo o campo polar PROPRIO.
+    bool field_gr{false};
     // Ajustar o campo B: quando ligado, o worker recebe lg B por avaliação e a
     // tabela de atmosfera é interpolada no eixo de B (formato MAGNUSI2). Sem
     // isso, B é fixo pela tabela. O bloco vem DEPOIS da atmosfera e ANTES do
@@ -492,6 +496,7 @@ Config parse_args(int argc, char** argv) {
         else if (key == "--atmosphere") cfg.atmosphere_hardening = std::stod(value());
         else if (key == "--magnetic-field") cfg.magnetic_field_g = std::stod(value());
         else if (key == "--field-peaking") cfg.field_peaking = std::stod(value());
+        else if (key == "--field-gr") cfg.field_gr = true;
         else if (key == "--fit-log-field") cfg.fit_log_field = true;
         else if (key == "--base-temp-mk") cfg.base_temperature_mk = std::stod(value());
         else if (key == "--base-kt-kev") cfg.base_temperature_mk = std::stod(value()) / kt_kev_per_mk;
@@ -1200,10 +1205,34 @@ struct AtmosphereTable {
 //: sqrt(1 + 3 cos^2 t). O que a atmosfera enxerga é o MÓDULO — os dois modos
 //: normais não distinguem o sinal de B —, então o resultado vive em [0, 90].
 //: Confere: colatitude magnética de 30 graus dá 16,10; a de 120 dá 40,89.
-double dipole_theta_b_deg(double cos_magnetic_colatitude) {
+//: Generalizado: tan(alpha_B) = rho tan(theta_m), com rho = B_eq/B_p. O dipolo
+//: plano e rho = 1/2 (e recupera a formula acima); o de Schwarzschild da
+//: gr_dipole_rho(u) > 1/2.
+double dipole_theta_b_deg(double cos_magnetic_colatitude, double rho = 0.5) {
     const double c = std::abs(clamp_unit(cos_magnetic_colatitude));
-    const double cos_b = 2.0 * c / std::sqrt(1.0 + 3.0 * c * c);
+    const double cos_b = c / std::sqrt(c * c + rho * rho * std::max(0.0, 1.0 - c * c));
     return std::acos(std::min(1.0, cos_b)) * 180.0 / pi;
+}
+
+//: Dipolo estatico no exterior de Schwarzschild (Ginzburg & Ozernoy 1964;
+//: Wasserman & Shapiro 1983): A_phi = -(3 mu sin^2 th / 8M^3)[r^2 ln(1-2M/r)
+//: + 2Mr + 2M^2]. Na superficie, para o mesmo momento, B_r e amplificado por
+//: F(u) = -(3/u^3)[ln(1-u) + u + u^2/2] e B_theta por
+//: G(u) = (3 sqrt(1-u)/u^3)[2 ln(1-u) + u/(1-u) + u], u = 2GM/Rc^2. A razao
+//: equador/polo passa de 1/2 (plano) a rho = G/(2F): 0,54 em u=0,26, 0,58 em
+//: u=0,46, 0,62 em u=0,60. Serie para u pequeno, onde a forma fechada cancela.
+double gr_dipole_rho(double u) {
+    u = std::min(0.95, std::max(0.0, u));
+    double F, G;
+    if (u < 0.02) {
+        F = 1.0 + 0.75 * u + 0.6 * u * u;
+        G = std::sqrt(1.0 - u) * (1.0 + 1.5 * u + 1.8 * u * u);
+    } else {
+        const double u3 = u * u * u;
+        F = -3.0 / u3 * (std::log(1.0 - u) + u + 0.5 * u * u);
+        G = 3.0 * std::sqrt(1.0 - u) / u3 * (2.0 * std::log(1.0 - u) + u / (1.0 - u) + u);
+    }
+    return G / (2.0 * F);
 }
 
 //: Profundidade vertical de onde emerge um fóton que sai em mu, com a opacidade
@@ -1957,11 +1986,16 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
     // CIMA, uma componente extra localizada em vez de substituir a atmosfera.
     // lg|B| local: lei dipolar em torno do polo mais próximo (c = cos até ele,
     // c<=0 => equador magnético). 0 quando o campo é uniforme (field_peaking<0).
-    auto local_log_b = [&cfg](double c) -> double {
-        if (cfg.field_peaking < 0.0 || cfg.magnetic_field_g <= 0.0) return 0.0;
+    // Dipolo plano (rho = 1/2, a_B = field_peaking) ou de Schwarzschild (rho e
+    // a_B = rho^2 do u corrente); rho tambem entra em alpha_B.
+    const double u_gr = 2.0 * cfg.mass_solar * 1.4766250385 / std::max(1.0e-6, cfg.radius_km);
+    const double rho = cfg.field_gr ? gr_dipole_rho(u_gr) : 0.5;
+    const double a_b = cfg.field_gr ? rho * rho : cfg.field_peaking;
+    const bool field_varies = (cfg.field_gr || cfg.field_peaking >= 0.0) && cfg.magnetic_field_g > 0.0;
+    auto local_log_b = [&cfg, a_b, field_varies](double c) -> double {
+        if (!field_varies) return 0.0;
         const double cc = std::max(0.0, c), s2 = std::max(0.0, 1.0 - cc * cc);
-        return std::log10(cfg.magnetic_field_g *
-                          std::sqrt(cc * cc + cfg.field_peaking * s2));
+        return std::log10(cfg.magnetic_field_g * std::sqrt(cc * cc + a_b * s2));
     };
     if (cfg.base_temperature_mk > 0.0) {
         const int base_bands = std::clamp(2 * cfg.surface_rings, 16, 60);
@@ -2032,7 +2066,7 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
                 temperature = std::pow(std::max(1.0e-8, t4), 0.25);
             }
             surface.push_back({sample.normal, sample.weight, temperature,
-                               dipole_theta_b_deg(cmag), -1,
+                               dipole_theta_b_deg(cmag, rho), -1,
                                local_log_b(std::max(c1, c2))});
         }
     }
@@ -2041,7 +2075,7 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
         for (const auto& sample : samples) {
             const double cmag = dot(sample.normal, magnetic_axis);
             surface.push_back({sample.normal, sample.weight, cfg.spots[spot_id].temperature_mk,
-                               dipole_theta_b_deg(cmag), static_cast<int>(spot_id),
+                               dipole_theta_b_deg(cmag, rho), static_cast<int>(spot_id),
                                local_log_b(std::abs(cmag))});
         }
     }

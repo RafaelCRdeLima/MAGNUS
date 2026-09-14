@@ -36,6 +36,16 @@ grade.LOG_G = [14.0, 14.2, 14.4]
 grade.THETA_B_DEG = [0.0, 30.0, 60.0]
 
 if __name__ == "__main__":
+    # Eixos por linha de comando (listas separadas por virgula), para extensoes
+    # da grade sem editar o arquivo: --lgb 13.95,14.0  --lgg 14.6,14.8
+    import argparse
+    pre = argparse.ArgumentParser(add_help=False)
+    pre.add_argument("--lgb"); pre.add_argument("--lgg"); pre.add_argument("--lgt")
+    known, rest = pre.parse_known_args(sys.argv[1:])
+    if known.lgb: grade.LOG_B = [float(x) for x in known.lgb.split(",")]
+    if known.lgg: grade.LOG_G = [float(x) for x in known.lgg.split(",")]
+    if known.lgt: grade.LOG_T = [float(x) for x in known.lgt.split(",")]
+    sys.argv = [sys.argv[0]] + rest
     if not any(a.startswith("--saida") for a in sys.argv[1:]):
         sys.argv += ["--saida", str(ROOT / "build" / "magnus_campoBg_denso.magnus")]
     print(f"grade densa: {len(grade.LOG_B)} B x {len(grade.LOG_T)} T x "

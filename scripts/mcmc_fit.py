@@ -493,6 +493,8 @@ class FitProblem:
         # correspondem a estrelas de neutrons reais. Nao molda a forma do posterior
         # dentro do fisico; so remove o inexistente.
         self.mass_floor = float(request.get("massFloor", 0.0))
+        #: Teto de massa (Msun) do vinculo duro em in_prior; 2.5 por padrao (era fixo).
+        self.mass_cap = float(request.get("massCap", 2.5))
         self.spot_count = int(request["spotCount"])
         # Ligado por omissão: sem isto o R-hat não desce, por mais iterações
         # que se dê. Medido nesta observação, com 400 iterações: 9,19 sem a
@@ -880,7 +882,7 @@ class FitProblem:
             # degenerescência da geometria escapa para o impossível.
             u, radius = values[0], values[1]
             mass = u * radius / (2.0 * _GM_SUN_C2_KM)
-            if u >= 0.985 or not (0.8 <= mass <= 2.5):
+            if u >= 0.985 or not (0.8 <= mass <= self.mass_cap):
                 return False
         else:
             mass, radius = values[0], values[1]

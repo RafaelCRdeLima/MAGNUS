@@ -83,8 +83,12 @@ def sample_models(result_dir: Path, n: int):
 
 
 def _guess_events(req):
-    base = "/home/rafael/Codes/XMM-NEWTON/products/RXJ1308.6_2127/0844140101/pulsaris"
-    return f"{base}/RXJ1308.6_2127_0844140101_epn_events.csv"
+    import os
+    ev = req.get("events") or os.environ.get("MAGNUS_EVENTS")
+    if not ev:
+        raise SystemExit("arquivo de eventos nao informado: use --events, a chave "
+                         "'events' do pedido ou a variavel MAGNUS_EVENTS")
+    return ev
 
 
 def _finish(ax):

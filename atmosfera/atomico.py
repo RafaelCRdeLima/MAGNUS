@@ -393,7 +393,7 @@ def oscillator_strength_longitudinal(field_g: float,
 # κ_bf = n_H σ_bf, com n_H = f_neutra n_0 e σ_bf a seção de choque de
 # fotoionização do fundamental, MEDIADA sobre a distribuição térmica em K —
 # o que espalha o limiar (o alargamento magnético). A física nova está aqui;
-# a MAGNITUDE é de 1ª passada (ver PLANO.md, "A rota do ligado-livre"):
+# a MAGNITUDE é de 1ª passada (a rota do ligado-livre ainda está aberta):
 #
 #   σ_bf(E; K) = σ₀ (ε(K)/E)³  para E ≥ ε(K),  0 abaixo               (Kramers)
 #

@@ -1,116 +1,105 @@
 # MAGNUS
 
-Atmosfera magnetizada de estrela de nêutrons, resolvida em ângulo.
+**MAGNUS** is a forward model and Bayesian inference code for the thermal
+X-ray emission of strongly magnetized neutron stars. It was written to
+analyse the X-ray Dim Isolated Neutron Stars (the "Magnificent Seven") observed
+by *XMM-Newton*, but nothing in it is specific to those sources.
 
-O MAGNUS escreve o que o `nsmaxg` não dá: um solucionador de transporte
-radiativo em plasma magnetizado que entrega **I(E, μ, θ_B)** — a intensidade
-por ângulo de emissão, sem a qual não há perfil de pulso calculado, só
-parametrizado.
+The pipeline has three layers, each of which can be used on its own:
 
-O plano está em **[PLANO.md](PLANO.md)**; o original, em
-[docs/Atmosfera de Dois Modos.pdf](docs/).
+1. **Magnetized atmosphere solver** (`atmosfera/`, Python). A plane-parallel,
+   two-mode (ordinary and extraordinary) radiative-transfer solver for a
+   hydrogen atmosphere in a field of 10^12 to 10^14 G. Feautrier scheme with
+   accelerated Lambda iteration, exact normal modes from the dielectric tensor,
+   electron and proton cyclotron opacities, free-free with thermally averaged
+   Gaunt factors, Compton scattering (Kompaneets, conservative form). Its
+   product is a **specific-intensity table** I(E, μ, θ_B) on a grid of
+   (lg B, lg T_eff, lg g), i.e. the emergent beam as a function of photon
+   energy, emission angle and angle between the field and the surface normal.
+2. **Relativistic ray-tracing engine** (`engine/main.cpp`, C++20). Exact
+   Schwarzschild light bending and gravitational redshift, a two-pole surface
+   temperature law (Pérez-Azorín et al. 2006) with an arbitrary tilt of the
+   second pole, a surface field that is uniform, a flat dipole or the
+   Schwarzschild-corrected dipole (Ginzburg & Ozernoy 1964), local
+   proton-cyclotron absorption tied to the local field, an effective-thickness
+   parameter for the atmosphere, interstellar absorption and instrument
+   response folding. It produces phase-resolved spectra and pulse profiles
+   from the intensity table.
+3. **Bayesian fitting** (`scripts/mcmc_fit.py`). Affine-invariant ensemble
+   MCMC (Goodman & Weare 2010) over phase-energy event data, with checkpoints,
+   resumption, stuck-walker diagnostics and Gelman-Rubin statistics. The C++
+   engine stays resident in memory and evaluates the likelihood.
 
-## Relação com o PULSARIS
+The physics and the numerical checks are documented, in Portuguese, in the
+docstrings and in the `README.md` files of each directory.
 
-O MAGNUS é a outra versão do PULSARIS. `engine/main.cpp` partiu de uma **cópia
-byte a byte** do motor dele no commit `4df2ab5`
-(`md5 eea8f774fe2aae55323d13fbdf53697d`), e já divergiu: o leitor de tabela de
-atmosfera, o eixo θ_B e a geometria dipolar entraram nesta cópia e não naquela.
+## Layout
 
-**O PULSARIS não se toca.** O que o MAGNUS devolve para ele é um arquivo — a
-tabela de intensidade —, não código.
-
-Fica fora da cópia o `instrument_data/` (136 MB). Só o estágio 4 precisa da
-resposta instrumental; até lá, aponta-se para a cópia do PULSARIS.
-
-## Uso
-
-```bash
-make engine       # compila build/magnus_engine
-make auditoria    # o aferidor do estágio 0: sigma T^4, frações e opacidades
-make test         # os portões: leitor de tabela e transporte analítico
-```
-
-Os dois saem com zero. O estágio 0 está fechado: os quatro gabaritos que
-reprovavam o teste de sigma T^4 são os modelos de superfície dipolar do Ho — não
-são gabaritos de atmosfera local, e o aferidor agora os lista com a razão.
-
-## A tabela de intensidade
-
-O formato de intercâmbio do MAGNUS é `I(E, μ, θ_B)`, gravado como lg da razão
-para um corpo negro isotrópico de mesma T_ef, em cinco eixos
-`(lg T, lg g, θ_B, μ, lg E)`. Escrita por `scripts/tabela_intensidade.py`, lida
-pelo motor:
-
-```bash
-build/magnus_engine --spectral-grid \
-  --atmosphere-table build/gabarito_corpo_negro.magnus \
-  --magnetic-colatitude 0
-```
-
-O eixo θ_B é o que o formato de cinco colunas do X-PSI não tem, e sem ele dois
-pontos quentes em colatitudes diferentes usariam o mesmo feixe: num dipolo,
-colatitude magnética de 30° e 120° dão θ_B de 16,10° e 40,89°. O motor calcula
-esse ângulo ponto a ponto e o relata por ponto quente no JSON.
-
-Uma tabela de zeros reproduz o motor sem atmosfera **bit a bit** — é a
-propriedade que faz o modelo aninhar.
-
-## O solucionador
-
-`atmosfera/transporte.py` é o núcleo numérico: quadratura de Gauss–Legendre,
-Feautrier tridiagonal por Thomas, o operador Λ explícito, o Milne cinza por
-fator de Eddington variável, e espalhamento coerente com ALI mais aceleração de
-Ng. Ele é medido contra soluções exatas, e não contra si mesmo:
-
-| medida | exato | medido |
-|---|---|---|
-| q(0), função de Hopf | 0,577350 | 0,577356 |
-| q(∞) | 0,710446 | 0,710443 |
-| fluxo constante em profundidade | constante | 3×10⁻¹⁰ pico a pico |
-| S(0)/√ε, espalhamento coerente | 1 | 1,0002 a 1,0006 |
-
-Roda em Python porque roda **fora** do laço de verossimilhança: produz uma
-tabela, uma vez, que o motor em C++ depois consome.
-
-`atmosfera/estrutura.py` é a atmosfera do estágio 1 — sem campo, hidrogênio
-totalmente ionizado, livre-livre com Gaunt de Elwert–Born, Thomson, correção de
-Unsöld–Lucy e o operador de Compton de Kompaneets em forma conservativa. Ela
-conserva sigma T_ef^4 a 6×10⁻⁶ e é numericamente convergida, mas **o portão
-contra as tabelas `nsx` não fechou**: 20% a 102% contra um alvo de 5%.
-
-O que falta ficou reduzido a uma coisa só, e ela é grande: **linearização
-completa conjunta em profundidade e frequência** para o termo de Compton. Duas
-formas mais baratas foram testadas com a temperatura congelada e as duas
-divergem — a perturbação é amplificada pelo número de espalhamentos antes de ser
-amortecida. Por isso `compton` vem desligado por padrão: o solucionador que roda
-é o coerente, que converge. O operador de Kompaneets fica no lugar, com cinco
-testes que o prendem.
-
-```bash
-python3 scripts/tabela_estagio1.py --temperaturas 6.0 --gravidades 14.3
-build/magnus_engine --spectral-grid --atmosphere-table build/estagio1.magnus
-```
-
-A cadeia inteira funciona ponta a ponta — solucionador, formato, motor.
-
-`atmosfera/magnetizada.py` é o estágio 2: os dois modos normais do plasma
-magnetizado saem de um **autoproblema exato** do tensor dielétrico (nenhuma
-fórmula de memória), as opacidades cíclicas carregam a supressão do elétron e a
-ressonância do próton, e o tensor de Rosseland (K₀, K₁) se compara direto com as
-colunas do Potekhin. Primeiro dia: aninhamento em B → 0 a 3×10⁻⁷, K₀/K₁
-**dentro do alvo de 20%** em lg B = 12 (razões 0,88–1,11), e o **transporte de
-dois modos** (`polarized_feautrier`: canais modo × ângulo com τ próprio,
-acoplamento de posto 3 pelas componentes cíclicas) rodando a atmosfera inteira:
-aninha no estágio 1 a ~1% quando B → 0, conserva σT_ef⁴ a 10⁻⁵, e os primeiros
-espectros magnetizados ficam a ~30% do `nsmaxg` em lg B = 12 — antes do Gaunt
-quantizante e da ionização parcial, nomeados no PLANO.md.
-
-## O que já está no disco
-
-| | |
+| path | contents |
 |---|---|
-| `atmosphere_data/nsmaxg_ho/` | 26 espectros de Ho, Potekhin & Chabrier, com procedência e hash. Contém `nsmaxg_HB1350ThB00g1438` — lg B = 13,50 e lg g = 14,38, que é a RBS 1223 com três casas |
-| `atmosphere_data/potekhin_magnetic_h/` | 47 tabelas de EOS e opacidade de Rosseland do H magnetizado, lg B de 10,5 a 15,0 |
-| `atmosphere_data/magnetic_anisotropy.csv` | derivada das anteriores pelo PULSARIS: a razão K₀/K₁ na fotosfera |
-| `engine/main.cpp` | o traçado de raios relativístico que consome a intensidade |
+| `engine/main.cpp` | the ray-tracing engine (single file, no dependencies) |
+| `atmosfera/` | the atmosphere solver: `transporte.py` (radiative transfer), `estrutura.py` (structure, non-magnetic stage), `magnetizada.py` (two-mode magnetized transfer), `atomico.py` (ionization and bound-free) |
+| `scripts/tabela_*.py` | drivers that build intensity tables (single models, dense grids in B, T and g); `mesclar_tabelas.py` merges grids |
+| `scripts/tabela_intensidade.py` | the table format (MAGNUSI2) reader and writer |
+| `scripts/mcmc_fit.py` | the MCMC driver; `cornerplot*.py`, `curva_e_espectro.py`, `figuras_publicacao.py` plot its results |
+| `scripts/coadicionar.py` | co-adds phase-energy event lists from several observations |
+| `scripts/baixar_dados_terceiros.py` | downloads and verifies the third-party data (see below) |
+| `tabelas/` | intensity tables already computed (see `tabelas/README.md`) |
+| `atmosphere_data/` | provenance of the third-party data the solver reads |
+| `tests/` | unit tests: analytic transfer solutions, table reader, atomic physics, two-mode transfer |
+| `magnus_gui/` | a Qt (PySide6) desktop front end for the fits (optional) |
+| `identity/` | logo and visual identity |
+
+## Building and testing
+
+Requirements: `g++` with C++20, Python 3.10 or newer with `numpy`, `scipy`
+and `matplotlib`. The GUI additionally needs `PySide6`.
+
+```bash
+make engine        # builds build/magnus_engine
+make test          # unit tests (the ones that need third-party data are skipped if it is absent)
+```
+
+## Third-party data
+
+The solver reads tables computed by other groups. They are **not
+redistributed** here; the script below downloads them from the original
+sites and checks their SHA-256 against the values recorded in
+`atmosphere_data/*/PROVENIENCIA.json`. Please cite the original authors.
+
+```bash
+python3 scripts/baixar_dados_terceiros.py
+```
+
+- Potekhin & Chabrier (2003, 2004): equation of state and Rosseland opacities
+  of partially ionized hydrogen in strong magnetic fields (Ioffe Institute).
+- van Hoof et al. (2014): thermally averaged free-free Gaunt factors.
+- Ho, Potekhin & Chabrier: NSMAXG model atmosphere spectra (XSPEC), used only
+  as benchmarks by `scripts/auditoria_gabaritos.py`. There is no stable
+  download URL; pass the zip with `--nsmaxg-zip`.
+
+## Running a fit
+
+`scripts/mcmc_fit.py` takes a phase-energy event list (CSV) and a JSON request
+describing the model, the priors and the sampler. Instrument responses and the
+interstellar-absorption table are read from the directory named by the
+environment variable `MAGNUS_INSTRUMENT_DIR`, which follows the
+`instrument_data/` layout of PULSARIS (a `profiles/manifest.json` pointing to
+sparse RMF/ARF files and `absorption/tbabs_wilm.csv`). The reduction pipeline
+that produces those files from *XMM-Newton* observation data files is not part
+of this repository.
+
+```bash
+export MAGNUS_INSTRUMENT_DIR=/path/to/instrument_data_root
+python3 scripts/mcmc_fit.py --events events.csv --request request.json > result.json
+```
+
+## Origin and citation
+
+MAGNUS was developed by Rafael C. R. de Lima (Universidade do Estado de Santa
+Catarina, UDESC). The ray-tracing engine started from the engine of PULSARIS,
+the author's earlier pulse-profile code, and diverged from it with the
+atmosphere-table backend, the field axis and the dipole geometry.
+
+A paper describing the code and its first application is in preparation. If
+you use MAGNUS before it appears, please cite this repository.

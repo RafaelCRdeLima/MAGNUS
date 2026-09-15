@@ -5,11 +5,17 @@ outra transcrição — a disciplina que o usuário pediu depois de a própria v
 paper ter corrigido um misprint na Eq.(21).
 """
 
+import os
 import unittest
 
 import numpy as np
 
 from atmosfera import atomico as at
+
+#: Dados de terceiros (Potekhin & Chabrier 2003); ver
+#: scripts/baixar_dados_terceiros.py. Sem eles, os testes que os leem sao pulados.
+_TEM_PC03 = os.path.isfile(os.path.join(at._PC03_DIR, "hmag13_5.dat"))
+_SEM_PC03 = "tabela pc03_hmagnet/hmag13_5.dat ausente (rode scripts/baixar_dados_terceiros.py)"
 
 
 class TestHidrogenioMagnetizado(unittest.TestCase):
@@ -177,6 +183,7 @@ class TestForcasDeOscilador(unittest.TestCase):
             self.assertAlmostEqual(f_k0, f_rest, places=6)
 
 
+@unittest.skipUnless(_TEM_PC03, _SEM_PC03)
 class TestTabelaPC03(unittest.TestCase):
     """P1: a fração neutra EXATA do PC03 (Ioffe), que pegou o over-count."""
 
@@ -202,6 +209,7 @@ class TestTabelaPC03(unittest.TestCase):
         self.assertAlmostEqual(best, pc, places=6)
 
 
+@unittest.skipUnless(_TEM_PC03, _SEM_PC03)
 class TestOpacidadeLigadoLivre(unittest.TestCase):
     """P1: κ_bf de 1ª passada — magnitude hidrogênica, limiar alargado."""
 

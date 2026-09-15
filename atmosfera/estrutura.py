@@ -1,6 +1,6 @@
 """Atmosfera plano-paralela sem campo, hidrogênio totalmente ionizado.
 
-O estágio 1 do PLANO.md. O objetivo não é o resultado — é validar a máquina
+O estágio 1 do plano de desenvolvimento. O objetivo não é o resultado — é validar a máquina
 numérica inteira num regime em que ela não pode se esconder atrás da
 complicação, e onde há gabarito: as tabelas `nsx` de B = 0 do Ho, com 25
 temperaturas e 15 gravidades.
@@ -447,7 +447,7 @@ def solve(log_t_eff: float, log_g: float, energies: np.ndarray | None = None,
     uma passada, e Picard sobre ele converge à precisão de máquina em três
     iterações, medido com a temperatura congelada. As duas divisões mais baratas
     — fonte explícita, e diagonal no albedo — foram testadas no mesmo problema e
-    divergem; a história e os números estão no PLANO.md.
+    divergem; a história e os números estão nas notas de desenvolvimento.
 
     O caminho comptonizado custa ~1,4 s por iteração de temperatura, contra
     ~0,15 s do coerente.
@@ -498,7 +498,7 @@ def solve(log_t_eff: float, log_g: float, energies: np.ndarray | None = None,
         # ficam de fora, atrasados uma passada: Picard sobre eles converge à
         # precisão de máquina em três iterações, medido com T congelada. As duas
         # divisões mais baratas — fonte explícita, e diagonal no albedo — foram
-        # testadas no mesmo problema e divergem; a história está no PLANO.md.
+        # testadas no mesmo problema e divergem; a história está nas notas de desenvolvimento.
         if compton and previous_field is not None:
             coupling = kompaneets_bands(energies, previous_field, temperature)
             field = transporte.comptonized_feautrier(optical_depth, mu, weights,

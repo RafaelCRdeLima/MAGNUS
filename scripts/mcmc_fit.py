@@ -32,7 +32,8 @@ ENGINE = ROOT / "build" / "magnus_engine"
 PULSARIS = Path(os.environ.get("MAGNUS_INSTRUMENT_DIR",
                                str(Path.home() / "Codes" / "PULSARIS")))
 #: Anisotropia da opacidade na fotosfera, derivada das tabelas de
-#: Potekhin & Chabrier (2003) por scripts/build_magnetic_anisotropy.py.
+#: Potekhin & Chabrier (2003) fora do MAGNUS (script do PULSARIS). Opcional: so
+#: o modelo cinza de dois modos a usa; a tabela de atmosfera nao precisa dela.
 ANISOTROPY_TABLE = ROOT / "atmosphere_data" / "magnetic_anisotropy.csv"
 #: Espectro real de hidrogênio magnetizado parcialmente ionizado, interpolado
 #: das tabelas NSMAXG de Ho, Potekhin & Chabrier (2008).
@@ -1571,7 +1572,7 @@ def main() -> None:
                     for index in trace_indices] for walker in trace_walkers],
     }
     print(json.dumps({"status": "ok",
-                      "backend": "affine-invariant ensemble MCMC + persistent PULSARIS C++",
+                      "backend": "affine-invariant ensemble MCMC + persistent MAGNUS C++ engine",
                       "algorithm": "Goodman-Weare stretch move",
                       "instrument": problem.instrument, "selectedEvents": problem.selected,
                       "exposure": problem.exposure,

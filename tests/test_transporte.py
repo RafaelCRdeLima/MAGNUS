@@ -1,4 +1,4 @@
-"""O portão analítico — estágio 0,5 do PLANO.md.
+"""O portão analítico — estágio 0,5 do plano de desenvolvimento.
 
 A atmosfera cinza tem solução exata, e é ela que mede a máquina numérica
 inteira antes de qualquer opacidade existir. Se um erro de Feautrier passar
@@ -301,7 +301,7 @@ class TestLinearizacaoConjunta(unittest.TestCase):
     """O transporte comptonizado, resolvido de uma vez.
 
     As duas divisões mais baratas — fonte explícita, e diagonal no albedo —
-    divergem neste mesmo problema; está medido e escrito no PLANO.md. Estes
+    divergem neste mesmo problema; está medido nas notas de desenvolvimento. Estes
     testes prendem o que a linearização conjunta tem de entregar: convergência
     de Picard rápida, positividade, consistência interna, e o limite certo
     quando o acoplamento é desligado.

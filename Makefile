@@ -8,8 +8,9 @@ all: engine
 
 engine: $(ENGINE)
 
-# O motor é cópia byte a byte do PULSARIS neste ponto. O que o MAGNUS vai
-# acrescentar a ele é um backend de atmosfera lido de tabela; ver PLANO.md.
+# O motor partiu do tracado de raios do PULSARIS e ganhou o backend de
+# atmosfera lido de tabela, o eixo de campo (lg B, theta_B) e o dipolo de
+# Schwarzschild.
 $(ENGINE): engine/main.cpp
 	@mkdir -p build
 	$(CXX) $(CXXFLAGS) $< -o $@

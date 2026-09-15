@@ -95,6 +95,12 @@ class TestModos(unittest.TestCase):
         self.assertLess(abs(parallel / scalar - 1.0), 1.0e-6)
 
 
+_POTEKHIN_12 = ROOT / "atmosphere_data" / "potekhin_magnetic_h" / "hmag12_0.dat.gz"
+
+
+@unittest.skipUnless(_POTEKHIN_12.is_file(),
+                     "tabela potekhin_magnetic_h/hmag12_0.dat.gz ausente "
+                     "(rode scripts/baixar_dados_terceiros.py)")
 class TestContraOPotekhin(unittest.TestCase):
     """A linha limpa: lg B = 12, lg T = 6,5, lg R = -1.
 

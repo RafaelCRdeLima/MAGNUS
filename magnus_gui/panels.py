@@ -637,7 +637,7 @@ class PlaceholderPanel(QWidget):
         h = QLabel(title)
         h.setStyleSheet(f"color:{T.TEXT};font-size:19px;font-weight:600;background:transparent")
         lay.addWidget(h)
-        tag = QLabel("planejada · ver PLANO_INTERFACE.md")
+        tag = QLabel("planejada")
         tag.setStyleSheet(f"color:{T.AMBER};font-size:11px;letter-spacing:1px;background:transparent")
         lay.addWidget(tag)
         for ln in lines:

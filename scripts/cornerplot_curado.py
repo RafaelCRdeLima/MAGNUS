@@ -11,8 +11,9 @@ from scipy.ndimage import gaussian_filter
 
 GM = 1.4766250385
 # Uso: python3 scripts/cornerplot_curado.py [dir_do_ajuste]; sem argumento, o fiducial.
-FITDIR = sys.argv[1].rstrip("/") if len(sys.argv) > 1 else \
-    "/home/rafael/Codes/MAGNUS/exploracoes/ajuste_beta_13obs_2026-09-12"
+if len(sys.argv) < 2:
+    sys.exit("uso: cornerplot_curado.py <diretorio do ajuste com ckpt.npz>")
+FITDIR = sys.argv[1].rstrip("/")
 d = np.load(f"{FITDIR}/ckpt.npz", allow_pickle=True)
 S = d["samples"]; nm = [str(x) for x in d["names"]]
 half = S.shape[1] // 2

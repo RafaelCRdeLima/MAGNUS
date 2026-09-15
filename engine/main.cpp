@@ -856,7 +856,7 @@ double blackbody_photon_intensity(double energy_kev, double temperature_mk) {
 //     1/K(theta) = cos^2(theta)/K0 + sin^2(theta)/K1
 //
 // com K0 ao longo de B e K1 perpendicular. A relação é dos próprios autores.
-// scripts/build_magnetic_anisotropy.py resolve a fotosfera (P = g/K0, com os
+// O script gerador (do PULSARIS) resolve a fotosfera (P = g/K0, com os
 // dois lados da mesma linha da tabela) e tabela a razão a = K0/K1 em
 // (lg T, lg B, lg g). Procedência, hash e o que citar estão em
 // atmosphere_data/potekhin_magnetic_h/PROVENIENCIA.json.

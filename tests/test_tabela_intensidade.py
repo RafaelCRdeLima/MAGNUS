@@ -1,4 +1,4 @@
-"""O portão do leitor de tabela — estágio 0 do PLANO.md.
+"""O portão do leitor de tabela — estágio 0 do plano de desenvolvimento.
 
 Não há teste de unidade que pegue física errada; há, e são estes, os que pegam
 LEITOR errado. Um índice trocado na interpolação de cinco eixos não levanta

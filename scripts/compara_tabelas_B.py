@@ -7,7 +7,7 @@ nos distantes produz duas depressoes (nas energias dos nos vizinhos) em vez de
 uma em E_cp(B). O fluxo medio-em-angulo e calculado como no motor (trapezio em mu).
 
 Uso: python3 scripts/compara_tabelas_B.py [lgB ...]   (padrao: 13.62 13.72 13.42)
-Saida: exploracoes/tabela_densa_2026-09-13/compara_tabelas_B.png/.pdf
+Saida: build/compara_tabelas_B.png/.pdf
 """
 import struct
 import sys
@@ -97,7 +97,7 @@ def main():
     axs[0].legend(fontsize=8, loc="lower right")
     fig.suptitle(fr"Atmosphere table interpolation in $\lg B$ (lg T={lgt}, lg g={lgg}, $\alpha_B$={thb:.0f}°)", fontsize=10)
     fig.tight_layout()
-    out = ROOT / "exploracoes" / "tabela_densa_2026-09-13"; out.mkdir(exist_ok=True)
+    out = ROOT / "build"; out.mkdir(exist_ok=True)
     fig.savefig(out / "compara_tabelas_B.png", dpi=140); fig.savefig(out / "compara_tabelas_B.pdf")
     print("figura:", out / "compara_tabelas_B.png")
 

@@ -60,27 +60,34 @@ def potekhin() -> None:
     tar_bytes = baixar(prov["origem"].get("arquivo_baixado", IOFFE_TAR))
     confere("hmagnet.tar.gz", tar_bytes, prov["origem"].get("sha256_do_tar"))
     wanted = prov["arquivos"]
+    pc = DATA / "pc03_hmagnet"
+    pc.mkdir(exist_ok=True)
+    n = 0
     with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r:gz") as tar:
+        # O tar traz os .dat sem compressao; o MAGNUS os guarda como .dat.gz
+        # (o nome registrado no PROVENIENCIA). Aceitam-se as duas formas.
         members = {Path(m.name).name: m for m in tar.getmembers() if m.isfile()}
         for name, info in wanted.items():
-            if name not in members:
-                print(f"  AVISO: {name} nao esta no tar")
+            stem = name[:-3] if name.endswith(".gz") else name
+            member = members.get(name) or members.get(stem)
+            if member is None:
+                print(f"  AVISO: {stem} nao esta no tar")
                 continue
-            raw = tar.extractfile(members[name]).read()
-            plain = gzip.decompress(raw) if name.endswith(".gz") else raw
+            raw = tar.extractfile(member).read()
+            plain = gzip.decompress(raw) if member.name.endswith(".gz") else raw
             esperado = info.get("sha256_descomprimido")
             if esperado and sha256(plain) != esperado:
                 raise SystemExit(f"{name}: conteudo difere do registrado")
-            (dest / name).write_bytes(raw)
-        # pc03_hmagnet: as duas tabelas descomprimidas e o hmn13_5 que o
-        # modulo de atmosferas le diretamente.
-        pc = DATA / "pc03_hmagnet"
-        for name in ("hmag13_0.dat.gz", "hmag13_5.dat.gz"):
-            if name in members:
-                (pc / name[:-3]).write_bytes(gzip.decompress(tar.extractfile(members[name]).read()))
-        if "hmn13_5.dat.gz" in members:
-            (pc / "hmn13_5.dat.gz").write_bytes(tar.extractfile(members["hmn13_5.dat.gz"]).read())
-    print(f"  {len(wanted)} tabelas em {dest.relative_to(ROOT)}; lg B 13,0/13,5 em pc03_hmagnet/")
+            (dest / name).write_bytes(gzip.compress(plain, mtime=0) if name.endswith(".gz") else plain)
+            n += 1
+            # pc03_hmagnet: as duas tabelas descomprimidas e o hmn13_5 que o
+            # modulo de atmosferas le diretamente.
+            if stem in ("hmag13_0.dat", "hmag13_5.dat"):
+                (pc / stem).write_bytes(plain)
+            elif stem == "hmn13_5.dat":
+                (pc / "hmn13_5.dat.gz").write_bytes(gzip.compress(plain, mtime=0))
+    print(f"  {n}/{len(wanted)} tabelas em {dest.relative_to(ROOT)}; "
+          f"lg B 13,0/13,5 em {pc.relative_to(ROOT)}")
 
 
 def van_hoof() -> None:

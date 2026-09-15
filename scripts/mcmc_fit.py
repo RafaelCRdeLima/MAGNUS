@@ -357,6 +357,9 @@ class FitProblem:
         self.metadata = metadata or {}
         self.period = float(request["period"])
         self.distance = float(request["distance"])
+        #: Distancia livre (kpc) com priori uniforme distanceRange; padrao: fixa.
+        self.fit_distance = bool(request.get("fitDistance", False))
+        self.distance_range = tuple(request.get("distanceRange", [0.1, 2.0]))
         # A exposição multiplica a taxa prevista, então errá-la desloca
         # diretamente a área emissora inferida. O intervalo entre o primeiro e o
         # último evento não serve: com lacunas de GTI ele superestima o tempo
@@ -801,6 +804,14 @@ class FitProblem:
             self.steps.extend([0.05, 0.05])
             self.initial.extend([self.beaming, self.beaming2])
 
+        # Distância livre (kpc): entra depois do feixe e ANTES de N_H, que tem de
+        # continuar sendo o último campo da linha do worker.
+        if self.fit_distance:
+            self.names.append("distance")
+            self.bounds.append((float(self.distance_range[0]), float(self.distance_range[1])))
+            self.steps.append(0.02 * max(self.distance, 0.1))
+            self.initial.append(self.distance)
+
         # N_H vai no fim do vetor de propósito: unpack_spots percorre a partir do
         # índice 4 e pararia cedo se algo fosse inserido no meio.
         if self.fit_nh:
@@ -1012,6 +1023,8 @@ class FitProblem:
             command.append("--fit-magnetic-colatitude")
         if self.fit_magnetic_azimuth:
             command.append("--fit-magnetic-azimuth")
+        if self.fit_distance:
+            command.append("--fit-distance")
         if self.line_depth > 0.0 or self.fit_line:
             command.extend(["--line-energy", str(self.line_energy),
                             "--line-width", str(self.line_width),
@@ -1114,6 +1127,9 @@ class FitProblem:
         if self.fit_beaming:
             fields.extend(values[cursor:cursor + 2])
             cursor += 2
+        if self.fit_distance:
+            fields.append(values[cursor])
+            cursor += 1
         if self.absorption_table is not None:
             # Sempre no fim da linha, ajustada ou fixa: é onde o motor a espera.
             fields.append(values[-1] if self.fit_nh else self.nh)

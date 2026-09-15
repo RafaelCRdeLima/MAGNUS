@@ -195,6 +195,9 @@ struct Config {
     // pulso cai. Sem ele livre, o pulso do fundo não alinha com o da observação
     // (o phaseOffset só move os spots), e o ajuste foge para pole-on.
     bool fit_magnetic_azimuth{false};
+    // Distância livre no worker: a normalização de fluxo (R/D)^2 deixa de fixar
+    // R quando D pode se ajustar. Chega na linha depois do feixe, antes de N_H.
+    bool fit_distance{false};
     std::string anisotropy_table;
     std::string nsmaxg_table;
     // Tabela de intensidade do MAGNUS: lg da razão para corpo negro, resolvida
@@ -515,6 +518,7 @@ Config parse_args(int argc, char** argv) {
         else if (key == "--fit-pole2-tilt2") cfg.fit_pole2_tilt2 = true;
         else if (key == "--fit-magnetic-colatitude") cfg.fit_magnetic_colatitude = true;
         else if (key == "--fit-magnetic-azimuth") cfg.fit_magnetic_azimuth = true;
+        else if (key == "--fit-distance") cfg.fit_distance = true;
         else if (key == "--anisotropy-table") cfg.anisotropy_table = value();
         else if (key == "--nsmaxg-table") cfg.nsmaxg_table = value();
         else if (key == "--atmosphere-table") cfg.atmosphere_table = value();
@@ -2615,6 +2619,17 @@ int run_fit_worker(const Config& base) {
                     throw std::runtime_error("fit worker received a beaming pair whose "
                                              "normalisation is not positive");
                 }
+            }
+
+            if (base.fit_distance) {
+                double distance{};
+                if (!(input >> distance)) {
+                    throw std::runtime_error("fit worker expected the distance in kpc");
+                }
+                if (!(distance > 0.0)) {
+                    throw std::runtime_error("fit worker received a non-positive distance");
+                }
+                cfg.distance_kpc = distance;
             }
 
             // N_H é opcional e vem por último: linhas antigas, sem ele, seguem

@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: >-
+  If you use MAGNUS in your work, please cite it with the metadata below.
+  A paper describing the code is in preparation; this file will be updated
+  with that reference, and with a Zenodo DOI, as soon as they exist.
+title: "MAGNUS: forward model and Bayesian inference for the thermal X-ray emission of magnetized neutron stars"
+type: software
+authors:
+  - family-names: "de Lima"
+    given-names: "Rafael C. R."
+    affiliation: "Universidade do Estado de Santa Catarina (UDESC); ICRANet, Università degli Studi di Ferrara"
+version: 0.1.0
+date-released: 2026-09-14
+license: GPL-3.0
+repository-code: "https://github.com/RafaelCRdeLima/MAGNUS"
+keywords:
+  - neutron stars
+  - magnetized atmospheres
+  - radiative transfer
+  - general relativity
+  - X-ray astronomy
+  - Bayesian inference

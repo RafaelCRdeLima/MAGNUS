@@ -94,12 +94,38 @@ export MAGNUS_INSTRUMENT_DIR=/path/to/instrument_data_root
 python3 scripts/mcmc_fit.py --events events.csv --request request.json > result.json
 ```
 
-## Origin and citation
+## Origin
 
 MAGNUS was developed by Rafael C. R. de Lima (Universidade do Estado de Santa
 Catarina, UDESC). The ray-tracing engine started from the engine of PULSARIS,
 the author's earlier pulse-profile code, and diverged from it with the
 atmosphere-table backend, the field axis and the dipole geometry.
 
-A paper describing the code and its first application is in preparation. If
-you use MAGNUS before it appears, please cite this repository.
+## License and disclaimer
+
+MAGNUS is free software, released under the GNU General Public License,
+version 3 (see [LICENSE](LICENSE)). You are free to use, study, modify and
+redistribute it under the terms of that license.
+
+The code is provided **as is**, without warranty of any kind. The authors are
+not responsible for bugs, for errors in the implementation, or for results
+obtained with it. Model atmospheres, radiative transfer and relativistic ray
+tracing involve many physical approximations and numerical choices, and the
+code is under active development. Anyone using MAGNUS for scientific work is
+expected to verify, for their own application, both the physics and the
+numerics, and is welcome to report problems by opening an issue.
+
+## Citing MAGNUS
+
+If MAGNUS contributes to a publication, please cite it. A paper describing the
+code and its first application is in preparation; until it appears, cite the
+repository itself, using the metadata in [CITATION.cff](CITATION.cff)
+(GitHub's "Cite this repository" button formats it for you):
+
+> de Lima, R. C. R. (2026). MAGNUS: forward model and Bayesian inference for
+> the thermal X-ray emission of magnetized neutron stars. Version 0.1.0.
+> https://github.com/RafaelCRdeLima/MAGNUS
+
+A Zenodo DOI for the archived releases will be added here as soon as it is
+minted. Please also cite the third-party data you use through MAGNUS (see
+above).

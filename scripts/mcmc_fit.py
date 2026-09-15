@@ -26,9 +26,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ENGINE = ROOT / "build" / "magnus_engine"
-#: Os dados de instrumento vivem no PULSARIS e são usados SOMENTE PARA LEITURA —
-#: a fronteira do projeto é essa: o que volta para lá é tabela, nunca escrita.
-PULSARIS = Path("/home/rafael/Codes/PULSARIS")
+#: Os dados de instrumento (perfis, respostas, TBabs) vivem fora do MAGNUS e são
+#: usados SOMENTE PARA LEITURA. O diretório vem da variável de ambiente
+#: MAGNUS_INSTRUMENT_DIR; sem ela, o padrão é a instalação do PULSARIS do autor.
+PULSARIS = Path(os.environ.get("MAGNUS_INSTRUMENT_DIR",
+                               str(Path.home() / "Codes" / "PULSARIS")))
 #: Anisotropia da opacidade na fotosfera, derivada das tabelas de
 #: Potekhin & Chabrier (2003) por scripts/build_magnetic_anisotropy.py.
 ANISOTROPY_TABLE = ROOT / "atmosphere_data" / "magnetic_anisotropy.csv"
@@ -959,9 +961,13 @@ class FitProblem:
             command.extend(["--atmosphere", str(self.atmosphere or 1.0)])
             if self.fit_atmosphere:
                 command.append("--fit-atmosphere")
-            if self.magnetic_field > 0.0 and ANISOTROPY_TABLE.is_file():
-                command.extend(["--magnetic-field", str(self.magnetic_field),
-                                "--anisotropy-table", str(ANISOTROPY_TABLE)])
+            if self.magnetic_field > 0.0:
+                # O campo vai SEMPRE ao motor (a tabela de atmosfera e a linha
+                # ciclotron dependem dele); a anisotropia do modelo cinza e o
+                # NSMAXG sao opcionais e so entram se os arquivos existirem.
+                command.extend(["--magnetic-field", str(self.magnetic_field)])
+                if ANISOTROPY_TABLE.is_file():
+                    command.extend(["--anisotropy-table", str(ANISOTROPY_TABLE)])
                 if self.use_nsmaxg and NSMAXG_TABLE.is_file():
                     command.extend(["--nsmaxg-table", str(NSMAXG_TABLE)])
                 if self.fit_log_field:

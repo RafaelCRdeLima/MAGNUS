@@ -10,3 +10,12 @@ exploracoes/**/*.pid
 exploracoes/**/*.log
 exploracoes/**/*.err
 exploracoes/combinado_gui_*.npz
+
+# referencias de terceiros (PDFs de artigos) e auxiliares do LaTeX
+refs/
+projetos/**/*.aux
+projetos/**/*.fdb_latexmk
+projetos/**/*.fls
+projetos/**/*.log
+projetos/**/*.out
+projetos/**/*.synctex.gz

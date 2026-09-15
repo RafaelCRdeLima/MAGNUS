@@ -11,6 +11,17 @@ exploracoes/**/*.log
 exploracoes/**/*.err
 exploracoes/combinado_gui_*.npz
 
+# dados de terceiros (baixados por scripts/baixar_dados_terceiros.py; nao redistribuir)
+atmosphere_data/potekhin_magnetic_h/*.dat.gz
+atmosphere_data/pc03_hmagnet/*.dat
+atmosphere_data/pc03_hmagnet/*.dat.gz
+atmosphere_data/van_hoof/gauntff.dat
+atmosphere_data/nsmaxg_ho/*.in.gz
+atmosphere_data/nsmaxg_ho/*.in
+atmosphere_data/magnetic_anisotropy.csv
+atmosphere_data/nsmaxg_hydrogen.bin
+atmosphere_data/nsmaxg_hydrogen.json
+
 # referencias de terceiros (PDFs de artigos) e auxiliares do LaTeX
 refs/
 projetos/**/*.aux

@@ -33,6 +33,42 @@ The pipeline has three layers, each of which can be used on its own:
    resumption, stuck-walker diagnostics and Gelman-Rubin statistics. The C++
    engine stays resident in memory and evaluates the likelihood.
 
+## What MAGNUS computes and what it imports
+
+In one sentence: MAGNUS is a generator of angle-resolved magnetized
+atmospheres that imports tabulated atomic microphysics and exports the
+specific intensity that its own relativistic ray tracer consumes.
+
+**Computed by MAGNUS.** The atmosphere itself: the hydrostatic structure, the
+normal modes from an exact eigenproblem of the dielectric tensor (plasma plus
+Euler-Heisenberg vacuum polarization), the electron- and proton-cyclotron,
+free-free and scattering opacities, the two-mode Feautrier transfer with
+accelerated Lambda iteration, the temperature correction and the emergent
+intensity I(E, μ, θ_B). Every table in `tabelas/` was produced this way. No
+external model supplies the spectrum.
+
+**Imported from other authors.** Tabulated microphysics, at well-defined
+points of the calculation:
+
+- free-free Gaunt factors (van Hoof et al. 2014); without the file the solver
+  falls back to its own Elwert-Born approximation;
+- the neutral fraction x(H) of partially ionized hydrogen (Potekhin & Chabrier
+  2003) at lg B = 13.0 and 13.5, which replaces the code's own Saha estimate
+  where the table exists;
+- the Rosseland opacities K0 and K1 of Potekhin & Chabrier, used only to
+  validate the code's own Rosseland tensor;
+- NSMAXG spectra (Ho, Potekhin & Chabrier), used only as benchmarks.
+
+**Not yet in the production tables.** The grids in `tabelas/` used for fitting
+are fully ionized hydrogen: the partial-ionization and bound-free machinery
+exists in `atmosfera/atomico.py` but is not switched on in those grids. In
+production, the only third-party input that enters the emergent spectrum is
+the Gaunt-factor table.
+
+**Downstream.** The C++ engine consumes MAGNUS tables only; the optional
+grey-model anisotropy file and the NSMAXG backend are not used in the fits.
+The MCMC driver consumes the engine.
+
 The physics and the numerical checks are documented, in Portuguese, in the
 docstrings and in the `README.md` files of each directory.
 

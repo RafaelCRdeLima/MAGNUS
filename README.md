@@ -1,5 +1,8 @@
 # MAGNUS
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22760147.svg)](https://doi.org/10.5281/zenodo.22760147)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+
 **MAGNUS** is a forward model and Bayesian inference code for the thermal
 X-ray emission of strongly magnetized neutron stars. It was written to
 analyse the X-ray Dim Isolated Neutron Stars (the "Magnificent Seven") observed
@@ -119,13 +122,13 @@ numerics, and is welcome to report problems by opening an issue.
 
 If MAGNUS contributes to a publication, please cite it. A paper describing the
 code and its first application is in preparation; until it appears, cite the
-repository itself, using the metadata in [CITATION.cff](CITATION.cff)
+archived release on Zenodo, using the metadata in [CITATION.cff](CITATION.cff)
 (GitHub's "Cite this repository" button formats it for you):
 
 > de Lima, R. C. R. (2026). MAGNUS: forward model and Bayesian inference for
-> the thermal X-ray emission of magnetized neutron stars. Version 0.1.0.
-> https://github.com/RafaelCRdeLima/MAGNUS
+> the thermal X-ray emission of magnetized neutron stars (v0.1.0). Zenodo.
+> https://doi.org/10.5281/zenodo.22760148
 
-A Zenodo DOI for the archived releases will be added here as soon as it is
-minted. Please also cite the third-party data you use through MAGNUS (see
-above).
+The concept DOI [10.5281/zenodo.22760147](https://doi.org/10.5281/zenodo.22760147)
+always resolves to the latest archived version. Please also cite the
+third-party data you use through MAGNUS (see above).

@@ -42,7 +42,8 @@ TABLE_ENERGIES = np.logspace(np.log10(0.03), np.log10(20.0), 160)
 
 
 def _solve_point(task: tuple) -> tuple:
-    log_b, log_t, log_g, theta_deg, iterations = task
+    log_b, log_t, log_g, theta_deg, iterations = task[:5]
+    atomic = bool(task[5]) if len(task) > 5 else False
     field = 10.0 ** log_b
     ion = magnetizada.CYCLOTRON_E_PER_GAUSS * field * magnetizada.MASS_RATIO
     energies = np.unique(np.concatenate(
@@ -51,7 +52,8 @@ def _solve_point(task: tuple) -> tuple:
     started = time.time()
     solution = magnetizada.solve(
         log_t, log_g, field, theta_b=float(np.radians(theta_deg)),
-        energies=energies, mu_nodes=MU_NODES, iterations=iterations)  # ionizado
+        energies=energies, mu_nodes=MU_NODES, iterations=iterations,
+        atomic=atomic)  # atomic=False: totalmente ionizada
     total = (solution["intensity"][:, :MU_NODES]
              + solution["intensity"][:, MU_NODES:])
     reference = estrutura.planck_energy(TABLE_ENERGIES, 10.0 ** log_t)
@@ -74,6 +76,8 @@ def main() -> None:
     parser.add_argument("--workers", type=int, default=5)
     parser.add_argument("--iteracoes", type=int, default=180)
     parser.add_argument("--checkpoint-cada", type=int, default=15)
+    parser.add_argument("--atomic", action="store_true",
+                        help="ionizacao parcial: x(H) do Ioffe + ligado-livre atomico (atomico.py)")
     arguments = parser.parse_args()
     ckpt = arguments.saida.with_suffix(".ckpt.npz")
     arguments.saida.parent.mkdir(parents=True, exist_ok=True)
@@ -89,7 +93,7 @@ def main() -> None:
             worst = float(z["worst"])
             print(f"checkpoint retomado: {done.sum()}/{done.size} pontos ja feitos", flush=True)
 
-    tasks = [(b, t, g, th, arguments.iteracoes)
+    tasks = [(b, t, g, th, arguments.iteracoes, arguments.atomic)
              for b in LOG_B for t in LOG_T for g in LOG_G for th in THETA_B_DEG
              if not done[LOG_B.index(b), LOG_T.index(t),
                          LOG_G.index(g), THETA_B_DEG.index(th)]]

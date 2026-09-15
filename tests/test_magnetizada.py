@@ -226,7 +226,10 @@ class TestAtmosferaFina(unittest.TestCase):
         # profundidade e total no alvo.
         from atmosfera import estrutura
         energies = estrutura.energy_grid(1.0e-3, 60.0, 70)
-        solution = mg.solve(6.1, 14.4, 1.0e13, iterations=250, mu_nodes=4,
+        # 600 iteracoes: com o logaritmo de Coulomb quantizante (PC03 Eq. 44) o
+        # modo X fica 3-6x mais opaco e esta coluna converge mais devagar
+        # (250 it: erro 1,6; 600 it: 1,5e-2, total 1,0004). Medido em 15/09/2026.
+        solution = mg.solve(6.1, 14.4, 1.0e13, iterations=600, mu_nodes=4,
                             energies=energies, surface_column=100.0)
         total = float(np.trapezoid(solution["flux_energy"], energies)
                       / (estrutura.STEFAN * (10.0 ** 6.1) ** 4))

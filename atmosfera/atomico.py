@@ -543,17 +543,39 @@ import os as _os
 
 _PC03_DIR = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
                           "atmosphere_data", "pc03_hmagnet")
+#: O conjunto completo do Ioffe (47 tabelas, lg B de 10,5 a 15,0 a cada 0,1 dex),
+#: comprimido: hmag* ate 13,5 e hmn* de 13,5 em diante (mesmo formato de 14 colunas).
+_POTEKHIN_DIR = _os.path.join(_os.path.dirname(_PC03_DIR), "potekhin_magnetic_h")
 _PC03_CACHE: dict = {}
 
 
+def _pc03_paths(tag: str, log_field: float) -> list:
+    """Candidatos, em ordem: descomprimido em pc03_hmagnet, depois o conjunto .gz."""
+    hmag = f"hmag{tag}.dat"; hmn = f"hmn{tag}.dat"
+    order = [hmn, hmag] if log_field > 13.5 + 1e-9 else [hmag, hmn]
+    paths = [_os.path.join(_PC03_DIR, hmag), _os.path.join(_PC03_DIR, hmn)]
+    paths += [_os.path.join(_POTEKHIN_DIR, name + ".gz") for name in order]
+    return paths
+
+
 def _load_pc03(log_field: float) -> dict:
-    """Lê hmag{lgB}.dat: grades lg T, lg R e mapas x(H), lg K0, lg K1."""
+    """Lê a tabela do Ioffe do nó de 0,1 dex mais próximo de lg B.
+
+    Grades lg T, lg R e mapas x(H), x(H0), lg K0, lg K1. Procura primeiro o
+    arquivo descomprimido em pc03_hmagnet/ e depois o .gz do conjunto completo
+    (baixado por scripts/baixar_dados_terceiros.py).
+    """
     tag = f"{round(log_field, 1):.1f}".replace(".", "_")
     if tag in _PC03_CACHE:
         return _PC03_CACHE[tag]
-    path = _os.path.join(_PC03_DIR, f"hmag{tag}.dat")
+    path = next((p for p in _pc03_paths(tag, log_field) if _os.path.isfile(p)), None)
+    if path is None:
+        raise FileNotFoundError(f"tabela do Ioffe para lg B = {tag} ausente em "
+                                f"{_PC03_DIR} e {_POTEKHIN_DIR}")
+    import gzip as _gzip
+    opener = _gzip.open if path.endswith(".gz") else open
     log_t, blocks, current = [], [], None
-    with open(path, encoding="latin-1") as handle:
+    with opener(path, "rt", encoding="latin-1") as handle:
         for line in handle:
             f = line.split()
             if len(f) == 2:                       # linha "lgT lgB"
@@ -568,11 +590,15 @@ def _load_pc03(log_field: float) -> dict:
                 except ValueError:
                     pass
     log_r = np.array([r[0] for r in blocks[0]])
-    xH = np.array([[r[8] for r in blk] for blk in blocks])     # (nT, nR)
-    k0 = np.array([[r[12] for r in blk] for blk in blocks])    # lg K0 (paralela)
-    k1 = np.array([[r[13] for r in blk] for blk in blocks])    # lg K1 (perp.)
-    table = {"log_t": np.array(log_t), "log_r": log_r,
-             "x_h": xH, "lg_k0": k0, "lg_k1": k1}
+    n_r = log_r.size
+    rows = [blk[:n_r] for blk in blocks if len(blk) >= n_r]
+    log_t = np.array(log_t[:len(rows)])
+    xH = np.array([[r[8] for r in blk] for blk in rows])      # (nT, nR)
+    xH0 = np.array([[r[9] for r in blk] for blk in rows])     # fundamental
+    k0 = np.array([[r[12] for r in blk] for blk in rows])     # lg K0 (paralela)
+    k1 = np.array([[r[13] for r in blk] for blk in rows])     # lg K1 (perp.)
+    table = {"log_t": log_t, "log_r": log_r, "log_b": round(log_field, 1),
+             "x_h": xH, "x_h0": xH0, "lg_k0": k0, "lg_k1": k1, "path": path}
     _PC03_CACHE[tag] = table
     return table
 
@@ -594,9 +620,22 @@ def _pc03_bilinear(table: dict, field: str, log_t: np.ndarray,
 
 
 def pc03_neutral_fraction(log_field: float, temperature: np.ndarray,
-                          density_g_cm3: np.ndarray) -> np.ndarray:
-    """Fração neutra x(H) do PC03 (exata), interpolada em (T, ρ)."""
-    table = _load_pc03(log_field)
-    return _pc03_bilinear(table, "x_h", np.log10(np.asarray(temperature, float)),
-                          np.log10(np.maximum(np.asarray(density_g_cm3, float),
-                                              1.0e-30)))
+                          density_g_cm3: np.ndarray,
+                          field: str = "x_h") -> np.ndarray:
+    """Fração neutra x(H) do PC03 (exata), interpolada em (T, ρ) e em lg B.
+
+    As tabelas do Ioffe estão a cada 0,1 dex em lg B; entre dois nós interpola-se
+    lg x(H) linearmente em lg B (x(H) varia suavemente com B a T, ρ fixos).
+    `field` pode ser "x_h0" para só o estado fundamental.
+    """
+    lt = np.log10(np.asarray(temperature, float))
+    lr = np.log10(np.maximum(np.asarray(density_g_cm3, float), 1.0e-30))
+    lo = np.floor(round(log_field, 6) * 10.0 + 1e-9) / 10.0
+    hi = round(lo + 0.1, 6)
+    if abs(log_field - lo) < 1.0e-6 or abs(log_field - hi) < 1.0e-6:
+        node = lo if abs(log_field - lo) < 1.0e-6 else hi
+        return _pc03_bilinear(_load_pc03(node), field, lt, lr)
+    w = (log_field - lo) / 0.1
+    x_lo = np.maximum(_pc03_bilinear(_load_pc03(lo), field, lt, lr), 1.0e-300)
+    x_hi = np.maximum(_pc03_bilinear(_load_pc03(hi), field, lt, lr), 1.0e-300)
+    return 10.0 ** ((1.0 - w) * np.log10(x_lo) + w * np.log10(x_hi))

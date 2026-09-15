@@ -292,6 +292,130 @@ def doppler_width(energy_kev: np.ndarray, temperature: np.ndarray) -> np.ndarray
         2.0 * thermal_kev / (ELECTRON_REST_KEV / MASS_RATIO))
 
 
+# --------------------------------------------------------------------------- #
+# Logaritmo de Coulomb em campo QUANTIZANTE (Potekhin & Chabrier 2003, Eq. 44)
+#
+# Com ħω_ce ≫ kT o elétron vive no nível de Landau fundamental e a seção
+# livre-livre deixa de ser a de Kramers com o Gaunt não magnético: as duas
+# componentes circulares (α = ±1) ganham um logaritmo de Coulomb Λ_±1 VÁRIAS
+# vezes maior que o clássico Λ_cl = e^{u/2} K0(u/2) (Eq. 43), e a longitudinal
+# (α = 0) fica próxima dele. Medido contra as tabelas de Rosseland K0/K1 do
+# Ioffe: sem isto o MAGNUS ficava 0,3–1,4 dex abaixo entre lg B 12 e 14,5 a
+# T = 10^6 K. Eq. (44), com u = ħω/kT e β_e = ħω_ce/kT:
+#
+#   Λ_α = (3/4) e^{u/2} Σ_n ∫_0^∞ (y/ζ) A_n^α / [(y+θ+ζ) sinh(β_e/2)]^{|n|} dy
+#   A_n^0 = x_n K1(x_n)/(y + β_e/4),  A_n^{±1} = (y+θ+|n|ζ)/ζ² K0(x_n)
+#   ζ = √(1+2θy+y²),  θ = (1+e^{−β_e})/(1−e^{−β_e}),  x_n = |u−nβ_e| √(1/4 + y/β_e)
+#
+# Aplica-se como RAZÃO Λ_α/Λ_cl sobre o livre-livre não magnético do estágio 1
+# (que já traz o seu Gaunt), para que o aninhamento em B → 0 continue exato:
+# em campo não quantizante (β_e < 1) a razão é 1, como o próprio PC03 prescreve.
+# A razão depende só de (β_e, u): tabelada uma vez em (lg β_e, lg u) e guardada
+# em build/coulomb_pc03_ratio.npz para os processos seguintes.
+
+_COULOMB_TABLE: dict = {}
+_COULOMB_LG_BETA = np.linspace(0.0, 5.0, 51)      # β_e de 1 a 1e5
+_COULOMB_LG_U = np.linspace(-3.0, 2.5, 111)       # u de 1e-3 a ~316
+
+
+def coulomb_log_classical(u: np.ndarray) -> np.ndarray:
+    """Λ_cl = e^{u/2} K0(u/2), a Eq. (43) de PC03 (Born, sem campo)."""
+    from scipy.special import k0
+    u = np.asarray(u, dtype=float)
+    return np.exp(u / 2.0) * k0(u / 2.0)
+
+
+def coulomb_log_pc03(beta_e: float, u: np.ndarray, alpha: int, n_y: int = 400) -> np.ndarray:
+    """Λ_α(β_e, u) pela Eq. (44) de PC03, α ∈ {0, +1, −1}; u escalar ou vetor."""
+    from scipy.special import k0, k1
+    u = np.atleast_1d(np.asarray(u, dtype=float))
+    beta_e = float(beta_e)
+    theta = (1.0 + np.exp(-beta_e)) / (1.0 - np.exp(-beta_e))
+    # Termos n ≠ 0 pesam sinh(β_e/2)^{-|n|}: para β_e grande só n = 0 sobrevive.
+    n_max = int(min(200, np.ceil(60.0 / max(beta_e, 1.0e-3))))
+    lg_sinh = (np.log(np.sinh(beta_e / 2.0)) if beta_e < 700.0
+               else beta_e / 2.0 - np.log(2.0))
+    out = np.zeros_like(u)
+    for i, ui in enumerate(u):
+        y_max = max(50.0, beta_e * (40.0 / max(ui, 1.0e-6)) ** 2)
+        y = np.geomspace(1.0e-8, y_max, n_y)
+        zeta = np.sqrt(1.0 + 2.0 * theta * y + y * y)
+        total = 0.0
+        for n in range(-n_max, n_max + 1):
+            # |u − nβ_e| = 0 nos harmônicos de Landau é singularidade logarítmica
+            # integrável de PC03 (as "spikes"); um piso a resolve.
+            offset = abs(ui - n * beta_e) if n == 0 else max(abs(ui - n * beta_e), 1.0e-3 * beta_e)
+            x_n = offset * np.sqrt(0.25 + y / beta_e)
+            if alpha == 0:
+                A = np.where(x_n > 0.0, x_n * k1(x_n), 1.0) / (y + beta_e / 4.0)
+            else:
+                A = (y + theta + abs(n) * zeta) / zeta ** 2 * k0(x_n)
+            if n != 0:
+                weight = np.exp(np.clip(-abs(n) * (np.log(y + theta + zeta) + lg_sinh), -700.0, 700.0))
+            else:
+                weight = 1.0
+            total += np.trapezoid((y / zeta) * A * weight, y)
+        out[i] = 0.75 * np.exp(ui / 2.0) * total
+    return out
+
+
+def _coulomb_ratio_table() -> np.ndarray:
+    """lg(Λ_α/Λ_cl) em (lg β_e, lg u, α∈{+1,−1,0}); calculada uma vez e guardada."""
+    if "table" in _COULOMB_TABLE:
+        return _COULOMB_TABLE["table"]
+    import os
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "build", "coulomb_pc03_ratio.npz")
+    if os.path.isfile(path):
+        z = np.load(path)
+        if (z["lg_beta"].shape == _COULOMB_LG_BETA.shape and z["lg_u"].shape == _COULOMB_LG_U.shape):
+            _COULOMB_TABLE["table"] = z["lg_ratio"]
+            return _COULOMB_TABLE["table"]
+    u = 10.0 ** _COULOMB_LG_U
+    classical = coulomb_log_classical(u)
+    table = np.zeros((_COULOMB_LG_BETA.size, _COULOMB_LG_U.size, 3))
+    for ib, lg_beta in enumerate(_COULOMB_LG_BETA):
+        beta = 10.0 ** lg_beta
+        for ia, alpha in enumerate((+1, -1, 0)):
+            table[ib, :, ia] = np.log10(np.maximum(coulomb_log_pc03(beta, u, alpha) / classical, 1.0e-6))
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        np.savez(path, lg_beta=_COULOMB_LG_BETA, lg_u=_COULOMB_LG_U, lg_ratio=table)
+    except OSError:
+        pass
+    _COULOMB_TABLE["table"] = table
+    return table
+
+
+def quantizing_coulomb_ratio(energy_kev: np.ndarray, temperature: np.ndarray,
+                             field_g: float) -> np.ndarray:
+    """Λ_α/Λ_cl para α = (+1, −1, 0), na forma de `energy_kev × temperature` mais (3,).
+
+    Bilinear em (lg β_e, lg u) sobre a tabela; 1 fora do regime quantizante
+    (β_e < 1), grampeada nas bordas em u.
+    """
+    kt = (BOLTZMANN / ERG_PER_KEV) * np.asarray(temperature, dtype=float)   # keV
+    energy = np.asarray(energy_kev, dtype=float)
+    u = energy / kt
+    beta = CYCLOTRON_E_PER_GAUSS * field_g / kt
+    shape = np.broadcast(u, beta).shape
+    u = np.broadcast_to(u, shape); beta = np.broadcast_to(beta, shape)
+    table = _coulomb_ratio_table()
+    lb = np.clip(np.log10(np.maximum(beta, 1.0e-30)), _COULOMB_LG_BETA[0], _COULOMB_LG_BETA[-1])
+    lu = np.clip(np.log10(np.maximum(u, 1.0e-30)), _COULOMB_LG_U[0], _COULOMB_LG_U[-1])
+    db = _COULOMB_LG_BETA[1] - _COULOMB_LG_BETA[0]; du = _COULOMB_LG_U[1] - _COULOMB_LG_U[0]
+    ib = np.clip(((lb - _COULOMB_LG_BETA[0]) / db).astype(int), 0, _COULOMB_LG_BETA.size - 2)
+    iu = np.clip(((lu - _COULOMB_LG_U[0]) / du).astype(int), 0, _COULOMB_LG_U.size - 2)
+    fb = (lb - _COULOMB_LG_BETA[ib]) / db; fu = (lu - _COULOMB_LG_U[iu]) / du
+    out = np.empty(shape + (3,))
+    for ia in range(3):
+        t = table[:, :, ia]
+        val = ((t[ib, iu] * (1 - fb) + t[ib + 1, iu] * fb) * (1 - fu)
+               + (t[ib, iu + 1] * (1 - fb) + t[ib + 1, iu + 1] * fb) * fu)
+        out[..., ia] = np.where(beta < 1.0, 1.0, 10.0 ** val)
+    return out
+
+
 def cyclic_free_free(energy_kev: np.ndarray, density: np.ndarray,
                      temperature: np.ndarray, field_g: float) -> np.ndarray:
     """kappa^alpha livre-livre, em cm^2/g: forma como a entrada, mais (3,).
@@ -320,11 +444,14 @@ def cyclic_free_free(energy_kev: np.ndarray, density: np.ndarray,
     gamma_e = _radiative_damping(energy, ELECTRON_REST_KEV) + collision
     gamma_p = (_radiative_damping(energy, ELECTRON_REST_KEV / MASS_RATIO)
                + MASS_RATIO * collision + doppler_width(energy_kev, temperature))
+    # Logaritmo de Coulomb quantizante (PC03 Eq. 44) por componente: razão
+    # sobre o Gaunt não magnético que `base` já carrega; 1 quando β_e < 1.
+    ratio = quantizing_coulomb_ratio(energy, temperature, field_g)
     columns = []
-    for alpha in (+1.0, -1.0, 0.0):
+    for index, alpha in enumerate((+1.0, -1.0, 0.0)):
         electron_part = (energy + alpha * cyclotron_e) ** 2 + gamma_e ** 2
         proton_part = (energy - alpha * cyclotron_p) ** 2 + gamma_p ** 2
-        columns.append(base * energy ** 4 / (electron_part * proton_part))
+        columns.append(base * ratio[..., index] * energy ** 4 / (electron_part * proton_part))
     return np.stack(columns, axis=-1)
 
 

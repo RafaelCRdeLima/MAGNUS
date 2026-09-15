@@ -1,0 +1,228 @@
+{
+  "conjunto": "Equação de estado e opacidades de Rosseland para hidrogênio parcialmente ionizado em campo magnético forte",
+  "autores": "A. Y. Potekhin & G. Chabrier (Neutron Star Group, Ioffe Institute)",
+  "origem": {
+    "pagina": "http://www.ioffe.ru/astro/NSG/Hmagnet/hmagtab.html",
+    "arquivo_baixado": "http://www.ioffe.ru/astro/NSG/Hmagnet/hmagnet.tar.gz",
+    "sha256_do_tar": "e1affeb26e4133effef801346e0d976bb68b783acb839ed0a464780231f58dae",
+    "bytes_do_tar": 2172354,
+    "baixado_em": "2026-08-31"
+  },
+  "citar": [
+    "Potekhin A. Y., Chabrier G., 2003, ApJ, 585, 955 — 'Equation of state and opacities for hydrogen atmospheres of neutron stars with strong magnetic fields' (arXiv:astro-ph/0212062)",
+    "Potekhin A. Y., Chabrier G., 2004, ApJ, 600, 317"
+  ],
+  "cobertura": {
+    "lg_B_gauss": "10.5 a 15.0",
+    "lg_T_kelvin": "4.9 a 7.0 (lg B <= 12); 5.3 a 7.0 (12 a 13.5); 5.7 a 7.6 (13.5 a 15)",
+    "lg_R": "R = rho / T6^3, de -7.4 a 3.6 em passos de 0.2"
+  },
+  "colunas": [
+    "lg(R)",
+    "lg(P)",
+    "PV/(NkT)",
+    "U/(NkT)",
+    "S/(Nk)",
+    "Cv/(Nk)",
+    "chit",
+    "chir",
+    "x(H)",
+    "x(H0)",
+    "x(H2)",
+    "x(pert.)",
+    "lg(K0) opacidade de Rosseland ao longo de B, cm^2/g",
+    "lg(K1) opacidade de Rosseland perpendicular a B, cm^2/g"
+  ],
+  "relacao_angular": "1/K(theta) = cos^2(theta)/K0 + sin^2(theta)/K1, com theta o ângulo entre a direção de propagação e o campo magnético. É esta relação, dada pelos próprios autores, que o PULSARIS usa.",
+  "limitacao": "São médias de ROSSELAND: integradas em frequência e sobre os dois modos de polarização. Dão a estrutura ANGULAR da opacidade, que é o que faltava ao modelo cinza, mas não a dependência espectral monocromática de cada modo. Um cálculo completo (NSX, Ho & Lai 2001) resolveria as duas; estas tabelas resolvem uma.",
+  "arquivos": {
+    "hmag11_9.dat.gz": {
+      "sha256_descomprimido": "80488683788e51248127d9d41793e879ee46367fd730c7a7d8a0e884ea3582e9",
+      "bytes_descomprimido": 216635
+    },
+    "hmag12_0.dat.gz": {
+      "sha256_descomprimido": "4b9424aeb2c901a202babff5579eb0ffd0897a58f8ed41596e409f6077bf2eb9",
+      "bytes_descomprimido": 216635
+    },
+    "hmag12_1.dat.gz": {
+      "sha256_descomprimido": "b8a171349af907fb387c89e212433ca9cd8ba2a4ce05e0410e538ff3925e0bf6",
+      "bytes_descomprimido": 216635
+    },
+    "hmag12_2.dat.gz": {
+      "sha256_descomprimido": "36e9577ecbcfeca402cce0cb1f05720374171027ca3ed4589d5be36330d9932b",
+      "bytes_descomprimido": 216635
+    },
+    "hmag12_3.dat.gz": {
+      "sha256_descomprimido": "80f6574a20684dd1f15cd269297492e19964f09556047003794a5a2f04b9aca4",
+      "bytes_descomprimido": 216635
+    },
+    "hmag12_4.dat.gz": {
+      "sha256_descomprimido": "332dba658ac5546f63845dffddc89877252837da771cdccaac6df7e769702fde",
+      "bytes_descomprimido": 216635
+    },
+    "hmag12_5.dat.gz": {
+      "sha256_descomprimido": "4fc8242f1465eba933622b1fbd79e6dc63646450538f895f376dc3f7ffeb9547",
+      "bytes_descomprimido": 216635
+    },
+    "hmag12_6.dat.gz": {
+      "sha256_descomprimido": "db9e388d64352da6e3d9a28625df4aa00f018309b9126231295fda3740560c3a",
+      "bytes_descomprimido": 216635
+    },
+    "hmag12_7.dat.gz": {
+      "sha256_descomprimido": "fa9c5fa2f86ad67aa588bdd7d42c22269f1291e8fe2891c92c576e323192ab19",
+      "bytes_descomprimido": 216635
+    },
+    "hmag12_8.dat.gz": {
+      "sha256_descomprimido": "8cd92a75d319a949a1bcf49c5be709b16aa203d19c44f64e94e65a56662d7607",
+      "bytes_descomprimido": 216635
+    },
+    "hmag12_9.dat.gz": {
+      "sha256_descomprimido": "51a2643ca0e23f2fb7e9416cd4fa49000381a501a4d7d811ed1bf91bc705748f",
+      "bytes_descomprimido": 216635
+    },
+    "hmag13_0.dat.gz": {
+      "sha256_descomprimido": "826b5d3c4b478cf001484fea27500b3643aa2769fcb7b578caaec9971bef2f2f",
+      "bytes_descomprimido": 216635
+    },
+    "hmag13_1.dat.gz": {
+      "sha256_descomprimido": "482cdeae0c1257d219d194fce43be4369623ca95a72b858a132b8fe5895eb1da",
+      "bytes_descomprimido": 216635
+    },
+    "hmag13_2.dat.gz": {
+      "sha256_descomprimido": "206b1556d82dff0ef944a0c70c7a17e708ecda3659621db32c5e2da024c10d69",
+      "bytes_descomprimido": 216635
+    },
+    "hmag13_3.dat.gz": {
+      "sha256_descomprimido": "6a3a8b19f57acb2237f55849c5fabff8df217f8901220e73c61accda221b4e2e",
+      "bytes_descomprimido": 216635
+    },
+    "hmag13_4.dat.gz": {
+      "sha256_descomprimido": "c6fe292008337c1c789f510eb13474095ffa95d6207a9758eda6866dccfe5fb9",
+      "bytes_descomprimido": 216635
+    },
+    "hmag13_5.dat.gz": {
+      "sha256_descomprimido": "3c6852b7efe5d59bde928519addc190c1ff815488e5153caf166b76f3922063a",
+      "bytes_descomprimido": 216635
+    },
+    "hmm10_5.dat.gz": {
+      "sha256_descomprimido": "5fdb004b635d95a3d4bb2e3d23242389cd358ed0838478b717b14501a2cffea6",
+      "bytes_descomprimido": 136089
+    },
+    "hmm10_6.dat.gz": {
+      "sha256_descomprimido": "bfc7a8cfd98969fd0104574c0fa76610d25ac244ad08c712db082fe84ee4c441",
+      "bytes_descomprimido": 136089
+    },
+    "hmm10_7.dat.gz": {
+      "sha256_descomprimido": "68da5dab1a72171a7ce851146d17489924f0c5b53b00d75ef4df49b23235a95d",
+      "bytes_descomprimido": 136089
+    },
+    "hmm10a8.dat.gz": {
+      "sha256_descomprimido": "9428c49613ffca6e2a03fd4ff0b9debe16ab4c211559391cb5dd3ddc64541cb6",
+      "bytes_descomprimido": 136089
+    },
+    "hmm11_0.dat.gz": {
+      "sha256_descomprimido": "8bef9456374a956ddcc84b3c0c7f4bd635da63a1939bce06930c896aabfd05fd",
+      "bytes_descomprimido": 136089
+    },
+    "hmm11_1.dat.gz": {
+      "sha256_descomprimido": "896c4c1db141f7483889bd871d50ad79ea17a62c72f4d5dd494c461d3367c506",
+      "bytes_descomprimido": 136089
+    },
+    "hmm11_2.dat.gz": {
+      "sha256_descomprimido": "0aca12af94ce6ab381a6ec26b47e5adbdaa3f7cce543a60bca6a1c7ff1b7a080",
+      "bytes_descomprimido": 136089
+    },
+    "hmm11_3.dat.gz": {
+      "sha256_descomprimido": "91f436f0f96cb9e80b57e19367d9330c9ba1e0bd9ed5f33344046daf6a56c665",
+      "bytes_descomprimido": 136089
+    },
+    "hmm11_4.dat.gz": {
+      "sha256_descomprimido": "d211ba1f3d876ec2833ed192e1b5bd3f7dce98802db37d4b3c415d6892384743",
+      "bytes_descomprimido": 136089
+    },
+    "hmm11_5.dat.gz": {
+      "sha256_descomprimido": "2dba04ffd6028d25bf043aba64f94c0779083de7214843a6bdbeab500833c5ab",
+      "bytes_descomprimido": 136089
+    },
+    "hmm11_6.dat.gz": {
+      "sha256_descomprimido": "8e2c549abbb4cf618f3bb0a0e484ab2d8707f4625d287b449671dbf3671f4ec8",
+      "bytes_descomprimido": 136089
+    },
+    "hmm11_7.dat.gz": {
+      "sha256_descomprimido": "fe2addc5849a18c5a7c67f4e0bf9a20221cd2b22888740f4cfa2756aab4a815f",
+      "bytes_descomprimido": 136089
+    },
+    "hmm11a8.dat.gz": {
+      "sha256_descomprimido": "ffc4874d66adc71d0db1213ff4a9d5035ac7766a0627df976071fa093a5aa1ba",
+      "bytes_descomprimido": 136089
+    },
+    "hmm12_0.dat.gz": {
+      "sha256_descomprimido": "3690757c24d28df9d672ec4dcc236a8c875d9103938f113ac3a9aeb59694db92",
+      "bytes_descomprimido": 136089
+    },
+    "hmn13_5.dat.gz": {
+      "sha256_descomprimido": "0758e0358cc00d6348d59584b882cdc256b15dc6f799f31f360b6c14c738027c",
+      "bytes_descomprimido": 124986
+    },
+    "hmn13_6.dat.gz": {
+      "sha256_descomprimido": "bdb164c876bbe71002ef4707148003b9529ca697df32c9cceca1cdf8a46b3eaa",
+      "bytes_descomprimido": 125023
+    },
+    "hmn13_7.dat.gz": {
+      "sha256_descomprimido": "d8adb3a14d50e7e52924feb3f5cdf12b68625cef2691e9f1a565794538ee347d",
+      "bytes_descomprimido": 125023
+    },
+    "hmn13_8.dat.gz": {
+      "sha256_descomprimido": "5204afc85ec4c28a6522eadd65f71085d58822d37a5fb6603aebb52fcd795eca",
+      "bytes_descomprimido": 125023
+    },
+    "hmn13_9.dat.gz": {
+      "sha256_descomprimido": "6fa33c793033da690d38e9e950ff57c7430ff24d79145666b2138cfffafc963e",
+      "bytes_descomprimido": 125023
+    },
+    "hmn14_0.dat.gz": {
+      "sha256_descomprimido": "7cf56a0b2dcf43e0aefeba15c8129b97bcb0a92b6953c51ab34fb0ec9755ecd1",
+      "bytes_descomprimido": 125024
+    },
+    "hmn14_1.dat.gz": {
+      "sha256_descomprimido": "1043032562146a0452ac8befb58a5765514e41c1d092b0218a0aa88c6b74680c",
+      "bytes_descomprimido": 125023
+    },
+    "hmn14_2.dat.gz": {
+      "sha256_descomprimido": "990ee33c797058ea92a28e83d09e5ae3139d0c7cafd34f9b9e5bc9af399bea73",
+      "bytes_descomprimido": 125023
+    },
+    "hmn14_3.dat.gz": {
+      "sha256_descomprimido": "8765219a40f39b46b52aa7ce8b934555170f66b0a80562d3c4fecdfe0d7308da",
+      "bytes_descomprimido": 125023
+    },
+    "hmn14_4.dat.gz": {
+      "sha256_descomprimido": "119b0cee6d402af192a57ed7f87bdefc7bfd50e353d12f27220c6bedf775544f",
+      "bytes_descomprimido": 125023
+    },
+    "hmn14_5.dat.gz": {
+      "sha256_descomprimido": "a760e4d5cebc06970ba9e53a558c3ff9f139bd952f830ba939cc5adc8395a72e",
+      "bytes_descomprimido": 125023
+    },
+    "hmn14_6.dat.gz": {
+      "sha256_descomprimido": "992eb80145f7124158e67d38c4f3fea7f9a1dce2415a98f53a7b26c0a6d8f8df",
+      "bytes_descomprimido": 125023
+    },
+    "hmn14_7.dat.gz": {
+      "sha256_descomprimido": "367fa1146e15f4346217024ec10bc9fdd4393997846c93948d03718337e46787",
+      "bytes_descomprimido": 125023
+    },
+    "hmn14_8.dat.gz": {
+      "sha256_descomprimido": "58305875848e321c6f85188a7251494a209717026f1cd28887c2305973dfdb5b",
+      "bytes_descomprimido": 125023
+    },
+    "hmn14_9.dat.gz": {
+      "sha256_descomprimido": "3823ce94ea07d2b021ad284d8671f7008e734eefe8673430aabeeccff234d9e3",
+      "bytes_descomprimido": 125023
+    },
+    "hmn15_0.dat.gz": {
+      "sha256_descomprimido": "0ee58bcc870d5ae6a946bc4dc62c3519b7928a4f31f581fe9882c9a2b1c3e80d",
+      "bytes_descomprimido": 125024
+    }
+  }
+}

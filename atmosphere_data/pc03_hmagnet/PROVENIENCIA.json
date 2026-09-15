@@ -1,0 +1,8 @@
+{
+  "fonte": "Potekhin & Chabrier 2003 (astro-ph/0212062), EOS e opacidades de H parcialmente ionizado em campo forte",
+  "url": "http://www.ioffe.ru/astro/NSG/Hmagnet/",
+  "baixado": "2026-09-03",
+  "conteudo": "por lg B: blocos em lg T, colunas lg(R) lg(P) PV/NkT U/NkT S/Nk Cv/Nk chit chir x(H) x(H0) x(H2) x(pert) lg(K0=long) lg(K1=transv)",
+  "uso_no_MAGNUS": "x(H) valida/substitui a fracao neutra; K0/K1 (Rosseland paralela/perpendicular) calibram magnitude e polarizacao. NAO contem secoes de choque MONOCROMATICas (so no codigo do Potekhin).",
+  "R": "R = rho / T6^3, T6 = T/1e6 K; logo lg rho = lg R + 3(lg T - 6)"
+}

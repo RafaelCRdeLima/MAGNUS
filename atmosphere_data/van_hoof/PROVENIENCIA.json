@@ -1,0 +1,9 @@
+{
+  "conjunto": "Fatores de Gaunt livre-livre termicamente mediados, nao relativisticos",
+  "citar": "van Hoof P. A. M., Williams R. J. R., Volk K., Chatzikos M., Ferland G. J., Lykins M., Porter R. L., Wang Y., 2014, MNRAS 444, 420 (arXiv:1407.5048)",
+  "origem": "https://data.nublado.org/gauntff/gauntff.dat, baixado em 2026-09-01",
+  "sha256": "07312b2068393c39acac6fb7478003060210b936b0547e8569749a792b851cf7",
+  "grade": "81 pontos em lg(gam2) de -6 a 10 e 146 em lg(u) de -16 a 13, passo 0,2 dex",
+  "licenca": "zlib-like, uso livre com atribuicao (cabecalho do arquivo)",
+  "por_que": "O portao do estagio 1 mediu o residuo de +4-5% em temperatura de cor como degenerado com a inclinacao do Gaunt; esta e a tabela exata que substitui a aproximacao de Elwert-Born, que fica de reserva."
+}

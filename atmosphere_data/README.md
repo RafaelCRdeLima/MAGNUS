@@ -1,15 +1,20 @@
 # Dados de atmosfera
 
-Este diretório guarda a **procedência** dos dados de terceiros que o
-solucionador de atmosferas lê. Os dados em si não são redistribuídos no
-repositório; são de outros autores e devem ser citados como tal. Para
-obtê-los:
+Este diretório guarda a **procedência** das entradas externas, todas
+**opcionais**, que o solucionador de atmosferas sabe ler. O MAGNUS roda sem
+nenhuma delas; cada uma refina ou valida um ponto específico do cálculo. Os
+dados em si não são redistribuídos no repositório: são de outros autores,
+devem ser obtidos nos sítios originais indicados abaixo (ou substituídos por
+qualquer tabela equivalente, no mesmo formato, a que o usuário tenha acesso)
+e citados como tal.
+
+Por conveniência, o script abaixo baixa as tabelas de Potekhin & Chabrier e
+de van Hoof dos sítios originais e confere o `sha256` contra o valor
+registrado no `PROVENIENCIA.json` de cada pasta. Um hash diferente
+interrompe o script, porque a fonte pode ter mudado. Os espectros NSMAXG
+ficam a cargo do usuário.
 
     python3 scripts/baixar_dados_terceiros.py
-
-O script baixa cada arquivo do sítio original e confere o `sha256` contra o
-valor registrado no `PROVENIENCIA.json` de cada pasta. Um hash diferente
-interrompe o script, porque a fonte pode ter mudado.
 
 ## De onde veio cada coisa
 

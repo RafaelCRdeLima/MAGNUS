@@ -99,23 +99,27 @@ make engine        # builds build/magnus_engine
 make test          # unit tests (the ones that need third-party data are skipped if it is absent)
 ```
 
-## Third-party data
+## Optional external inputs
 
-The solver reads tables computed by other groups. They are **not
-redistributed** here; the script below downloads them from the original
-sites and checks their SHA-256 against the values recorded in
-`atmosphere_data/*/PROVENIENCIA.json`. Please cite the original authors.
+MAGNUS runs without any external table. The inputs below are **optional**:
+each one refines or checks a specific piece of the calculation, and each is
+the work of other authors, so none of them is redistributed here. Use the
+original tables from the links below, or any equivalent table you have access
+to in the same format, and cite their authors. The files are expected under
+`atmosphere_data/` in the layout described in
+[atmosphere_data/README.md](atmosphere_data/README.md); the file
+`PROVENIENCIA.json` in each folder records the exact versions we used, with
+their SHA-256.
 
-```bash
-python3 scripts/baixar_dados_terceiros.py
-```
+| input | what it changes | source |
+|---|---|---|
+| free-free Gaunt factors, `van_hoof/gauntff.dat` | replaces the built-in Elwert-Born approximation in the free-free opacity; used for all tables in `tabelas/` | van Hoof et al. 2014, MNRAS 444, 420: <https://data.nublado.org/gauntff/> |
+| EOS and Rosseland opacities of magnetized hydrogen, `potekhin_magnetic_h/`, `pc03_hmagnet/` | neutral fraction x(H) at lg B = 13.0 and 13.5 for the partial-ionization branch; K0, K1 for validating the Rosseland tensor | Potekhin & Chabrier 2003, ApJ 585, 955; 2004, ApJ 600, 317: <http://www.ioffe.ru/astro/NSG/Hmagnet/> |
+| NSMAXG model spectra, `nsmaxg_ho/` | benchmarks only (`scripts/auditoria_gabaritos.py`) and the optional `--nsmaxg-table` engine backend, neither used in the fits | Ho, Potekhin & Chabrier 2008, ApJS 178, 102; XSPEC model page: <https://heasarc.gsfc.nasa.gov/xanadu/xspec/models/nsmaxg.html> |
 
-- Potekhin & Chabrier (2003, 2004): equation of state and Rosseland opacities
-  of partially ionized hydrogen in strong magnetic fields (Ioffe Institute).
-- van Hoof et al. (2014): thermally averaged free-free Gaunt factors.
-- Ho, Potekhin & Chabrier: NSMAXG model atmosphere spectra (XSPEC), used only
-  as benchmarks by `scripts/auditoria_gabaritos.py`. There is no stable
-  download URL; pass the zip with `--nsmaxg-zip`.
+For convenience, `scripts/baixar_dados_terceiros.py` fetches the first two
+from the original sites and verifies their hashes; the NSMAXG spectra must be
+obtained by the user.
 
 ## Running a fit
 

@@ -74,7 +74,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--saida", type=Path, default=ROOT / "build" / "magnus_campoBg.magnus")
     parser.add_argument("--workers", type=int, default=5)
-    parser.add_argument("--iteracoes", type=int, default=180)
+    parser.add_argument("--iteracoes", type=int, default=300)   # com Ng: EW da linha do proton a ~5% do convergido
     parser.add_argument("--checkpoint-cada", type=int, default=15)
     parser.add_argument("--atomic", action="store_true",
                         help="ionizacao parcial: x(H) do Ioffe + ligado-livre atomico (atomico.py)")

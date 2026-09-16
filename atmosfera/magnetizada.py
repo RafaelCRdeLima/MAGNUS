@@ -613,7 +613,7 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
           damping: float = 0.25, vacuum: bool = False,
           surface_column: float | None = None,
           conversion: str = "full", trace: list | None = None,
-          atomic: bool = False) -> dict:
+          atomic: bool = False, ng_every: int = 5) -> dict:
     """Atmosfera magnetizada, campo ao longo da normal: o caso dos `ThB00`.
 
     A mesma máquina do estágio 1 — hidrostática P = g·y, Unsöld–Lucy com
@@ -662,6 +662,12 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
     history = []
     previous_step = np.zeros(y.size)
     relaxation = np.ones(y.size)
+    # Aceleração de Ng/Anderson na SEQUÊNCIA DE TEMPERATURA (lg T): o Unsöld-Lucy
+    # converge como série geométrica lenta nas camadas externas (medido em
+    # 1e14 G, T_ef 1e6: T(tau_T 1e-3) ainda caía 25% entre 180 e 1500 iterações,
+    # erro de fluxo ~ it^-1/2). A cada `ng_every` passos, após um aquecimento,
+    # combina os últimos iterados (transporte._anderson_step) e zera o histórico.
+    ng_in: list = []; ng_out: list = []
     # A temperatura da SUPERFÍCIE de baixo é estado próprio, separado do gás da
     # última célula: são papéis diferentes — o gás obedece ao equilíbrio
     # radiativo local, a superfície carrega o fluxo que falta. Amarrá-las numa
@@ -699,6 +705,8 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
                 np.concatenate([with_field, -with_field]), -1.0, 1.0)))
 
     for step in range(iterations):
+
+        ng_t_in = np.log(np.maximum(temperature, 1.0e-30))
         density = pressure * estrutura.PROTON_MASS / (2.0 * estrutura.BOLTZMANN * temperature)
         if vacuum:
             stack = np.zeros((energies.size, 2 * mu.size, 3, y.size))
@@ -949,6 +957,20 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
             temperature[-1] = max(temperature[-1] + newton_step,
                                   0.05 * effective)
 
+        if ng_every > 0 and surface_column is None:
+            ng_in.append(ng_t_in); ng_out.append(np.log(np.maximum(temperature, 1.0e-30)))
+            if len(ng_in) > 4:
+                ng_in.pop(0); ng_out.pop(0)
+            if step >= 20 and len(ng_in) >= 3 and (step % ng_every) == 0:
+                from .transporte import _anderson_step
+                accelerated = np.exp(_anderson_step(ng_in, ng_out))
+                if np.all(np.isfinite(accelerated)):
+                    # passo acelerado com o mesmo freio do Unsöld-Lucy (±25% em T)
+                    accelerated = np.clip(accelerated, (1.0 - damping) * temperature,
+                                          (1.0 + damping) * temperature)
+                    temperature = np.maximum(accelerated, 0.05 * effective)
+                    temperature[0] = temperature[1]
+                    ng_in.clear(); ng_out.clear()
         change = float(np.max(np.abs(delta_t[1:]) / temperature[1:]))
         if trace is not None:
             j = 1 + int(np.argmax(np.abs(delta_t[1:]) / temperature[1:]))

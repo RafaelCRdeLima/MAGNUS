@@ -29,3 +29,21 @@ Regeneráveis por `scripts/tabela_estagio2.py` (~75 s por modelo) e
   (17 nós) × 7 T × lg g {14,0…14,8} (5 nós) × θ_B {0, 30, 60}; mescla de
   `magnus_campoBg_denso` com as fatias novas (`scripts/mesclar_tabelas.py`). Usada
   só na investigação do modelo γ (que foge para g > 14,4); o fiducial usa a densa.
+
+## Tabelas v2 (16/09/2026): livre-livre com logaritmo de Coulomb quantizante
+
+Todas as tabelas acima foram geradas com o Gaunt não magnético em todas as componentes
+cíclicas do livre-livre. A validação contra as médias de Rosseland de Potekhin & Chabrier
+2003 e as opacidades monocromáticas de Suleimanov, Potekhin & Werner 2009 mostrou o modo X
+3–6 vezes transparente demais em lg B ≥ 13; a correção (Eq. 44 de PC03, `quantizing_coulomb_ratio`
+em `atmosfera/magnetizada.py`) e a aceleração de Ng na iteração de temperatura entram nestas
+tabelas, geradas com 300 iterações. **São as tabelas de produção a partir de 16/09/2026**; as
+anteriores (campoBg, denso, denso_ext, denso_ffq, denso_atom) ficam como registro.
+
+- `magnus_campoBg_denso_v2.magnus`: mesmos eixos da densa (lg B 13,20–13,90 a 0,05 dex, 7 T em
+  5,7–6,3, lg g {14,0; 14,2; 14,4}, θ_B {0, 30, 60}, 8 μ, 160 E), hidrogênio totalmente ionizado,
+  sem polarização do vácuo (ramo ainda não validado contra as referências publicadas).
+- `magnus_campoBg_denso_v2_atom.magnus`: idem com ionização parcial (fração neutra de PC03 em todo
+  o eixo de B e ligado-livre atômico de primeira passada), para medir o efeito dos átomos.
+- As versões intermediárias de 15/09 (livre-livre corrigido, 180 iterações, sem Ng) não são
+  distribuídas; foram superadas pelas v2.

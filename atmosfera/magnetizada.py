@@ -105,9 +105,60 @@ def vacuum_delta(field_g: float) -> float:
     return FINE_STRUCTURE / (45.0 * np.pi) * (field_g / CRITICAL_FIELD_G) ** 2
 
 
+def _ordena_propagantes(values: np.ndarray, order: np.ndarray, axis: int) -> np.ndarray:
+    """Ordena os dois modos por Re(n^2) DECRESCENTE, e nao por |n^2|.
+
+    Onde o modo ordinario cruza a frequencia de plasma o seu n^2 passa por zero e
+    fica NEGATIVO: o modo deixa de se propagar. Ordenar por |n^2| pega entao a
+    raiz evanescente como se fosse o primeiro modo, porque o modulo dela cresce
+    sem limite (medido em lg B = 14, E = 0,29 keV: n^2 = -1,75, -5,33 e +224 em
+    tres celulas vizinhas, com a polarizacao do canal 0 saltando de [0,5; 0,5; 0]
+    para [0,09; 0,09; 0,82]). Esses saltos de polarizacao entre celulas vizinhas
+    sao a origem do serrilhado de periodo 2 em T e do erro de fluxo de 3% do ramo
+    com vacuo, que so aparece la porque so o vacuo recalcula as amplitudes por
+    profundidade. Por Re(n^2) o modo que se propaga fica sempre no canal 0 e a
+    polarizacao e continua; onde n^2 < 0 o canal 1 fica evanescente, como deve.
+    Para dois n^2 positivos esta ordem e identica a anterior.
+
+    NAO E PADRAO ainda, e o motivo esta medido (17/09/2026): sozinha, a troca
+    melhora a atmosfera semi-infinita sem vacuo (erro de fluxo 9,2e-3 -> 6,6e-3),
+    PIORA a com vacuo (2,3e-2 -> 5,1e-2) e quebra a atmosfera fina (erro 1,0).
+    Falta o passo seguinte: onde n^2 < 0 o modo e EVANESCENTE e nao transporta
+    fluxo, e hoje o canal continua sendo integrado pelo Feautrier como se fosse
+    propagante. Tratar o canal evanescente (opacidade efetivamente infinita, ou
+    remocao do canal) e o que falta para a selecao por Re(n^2) virar padrao.
+    """
+    with np.errstate(divide="ignore", invalid="ignore"):
+        refractive = np.real(1.0 / np.take_along_axis(values, order, axis=axis))
+    refractive = np.where(np.isfinite(refractive), refractive, -np.inf)
+    return np.take_along_axis(order, np.argsort(-refractive, axis=axis), axis=axis)
+
+
+def _ordena_por_polarizacao(vectors: np.ndarray, order: np.ndarray) -> np.ndarray:
+    """Ordena os dois modos pelo CONTEÚDO LONGITUDINAL, não pelo autovalor.
+
+    Na ressonância de vácuo os dois n² ficam degenerados a ~1e-7 e trocam de
+    caráter: ordenar por |n²| segue o ramo ADIABÁTICO, que muda de polarização
+    de uma célula para a seguinte, e com isso a opacidade de um canal salta
+    ordens de grandeza entre pontos vizinhos da grade. É isso que impede o
+    Feautrier de fechar o fluxo (medido: 3% com vácuo contra 0,3% sem, e refinar
+    a grade não melhora). Ordenar pelo |e_0|² (a componente ao longo de B) dá a
+    base DIABÁTICA: cada canal guarda a sua polarização, as opacidades ficam
+    contínuas, e a troca na ressonância passa a ser inteiramente do termo de
+    conversão. É a base em que van Adelsberg & Lai (2006) e Suleimanov et al.
+    (2009) resolvem o transporte.
+    """
+    longitudinal = np.abs(np.take_along_axis(vectors, order[..., None, :], axis=-1)[..., 2, :]) ** 2
+    troca = longitudinal[..., 0] < longitudinal[..., 1]
+    saida = order.copy()
+    saida[..., 0] = np.where(troca, order[..., 1], order[..., 0])
+    saida[..., 1] = np.where(troca, order[..., 0], order[..., 1])
+    return saida
+
+
 def mode_amplitudes(energy_kev: np.ndarray, theta_b: float, density: float,
                     field_g: float, vacuum: bool = False,
-                    details: bool = False):
+                    details: bool = False, ordering: str = "n2"):
     """|e_alpha^j|^2 dos dois modos: forma (n_E, 2 modos, 3 componentes).
 
     Resolve a equação de onda COMPLETA, com permeabilidade anisotrópica,
@@ -174,6 +225,10 @@ def mode_amplitudes(energy_kev: np.ndarray, theta_b: float, density: float,
     order = np.argsort(-np.abs(values), axis=1)[:, :2]
     order = np.take_along_axis(order, np.argsort(
         np.take_along_axis(np.abs(values), order, axis=1), axis=1), axis=1)
+    if ordering == "propagante":
+        order = _ordena_propagantes(values, order, axis=1)
+    elif ordering == "polarizacao":
+        order = _ordena_por_polarizacao(vectors, order)
     rows = np.arange(n_energy)[:, None]
     chosen = vectors[rows, :, order]                            # (n_E, 2, 3) cíclico
     chosen = chosen / np.linalg.norm(chosen, axis=2, keepdims=True)
@@ -185,7 +240,8 @@ def mode_amplitudes(energy_kev: np.ndarray, theta_b: float, density: float,
 
 
 def vacuum_amplitudes_averaged(energy_kev: np.ndarray, angles: np.ndarray,
-                               density: np.ndarray, field_g: float) -> np.ndarray:
+                               density: np.ndarray, field_g: float,
+                               ordering: str = "n2") -> np.ndarray:
     """|e_α^j|² mediada sobre `angles` (raio-CAMPO), com vácuo. (n_E, n_D, 2, 3).
 
     A mesma matemática de `mode_amplitudes` (base cíclica, autoproblema com μ⁻¹
@@ -221,6 +277,10 @@ def vacuum_amplitudes_averaged(energy_kev: np.ndarray, angles: np.ndarray,
     order = np.argsort(-np.abs(values), axis=-1)[..., :2]
     order = np.take_along_axis(order, np.argsort(
         np.take_along_axis(np.abs(values), order, axis=-1), axis=-1), axis=-1)
+    if ordering == "propagante":
+        order = _ordena_propagantes(values, order, axis=-1)
+    elif ordering == "polarizacao":
+        order = _ordena_por_polarizacao(vectors, order)
     chosen = np.take_along_axis(vectors, order[..., None, :], axis=-1)  # (...,3,2)
     chosen = np.moveaxis(chosen, -1, -2)                               # (...,2,3)
     chosen = chosen / np.linalg.norm(chosen, axis=-1, keepdims=True)
@@ -616,7 +676,8 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
           damping: float = 0.25, vacuum: bool = False,
           surface_column: float | None = None,
           conversion: str = "full", trace: list | None = None,
-          atomic: bool = False, ng_every: int = 5) -> dict:
+          atomic: bool = False, ng_every: int = 5,
+          ordering: str = "n2", smooth_correction: bool = False) -> dict:
     """Atmosfera magnetizada, campo ao longo da normal: o caso dos `ThB00`.
 
     A mesma máquina do estágio 1 — hidrostática P = g·y, Unsöld–Lucy com
@@ -716,7 +777,8 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
             safe_density = np.maximum(density, 1.0e-30)
             for im in range(mu.size):                    # uma chamada por μ
                 block = vacuum_amplitudes_averaged(
-                    energies, vacuum_angles[im], safe_density, field_g)  # (nE,nD,2,3)
+                    energies, vacuum_angles[im], safe_density, field_g,
+                    ordering=ordering)                                  # (nE,nD,2,3)
                 stack[:, im] = block[:, :, 0].transpose(0, 2, 1)       # (nE,3,nD)
                 stack[:, mu.size + im] = block[:, :, 1].transpose(0, 2, 1)
             amplitudes = stack
@@ -904,6 +966,21 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
         relaxation = np.clip(np.where(delta_t * previous_step < 0.0,
                                       0.5 * relaxation, 1.1 * relaxation), 0.05, 1.0)
         previous_step = delta_t
+        if smooth_correction and delta_t.size > 4:
+            # Filtro de tres pontos na CORRECAO, nao na temperatura. A correcao de
+            # Unsold-Lucy com relaxacao adaptativa ponto a ponto desenvolve um modo
+            # de periodo 2 no ESPACO: medido com vacuo em 1e14 G, a temperatura sai
+            # em degraus de dois pontos em tau_T ~ 20-50 e o fluxo oscila +-6% de
+            # celula para celula, com a segunda diferenca de ln T trocando de sinal
+            # em 7 das 11 celulas vizinhas. O ponto fixo nao muda (correcao nula
+            # continua nula depois do filtro).
+            # MEDIDO (17/09/2026): sem vacuo o filtro ajuda pouco (erro de fluxo
+            # 9,2e-3 -> 6,9e-3); COM vacuo ele PIORA (2,6e-2 -> 9,5e-2), porque
+            # briga com a relaxacao adaptativa ponto a ponto, que decide o passo
+            # pelo sinal da correcao anterior. Por isso vem desligado.
+            suave = delta_t.copy()
+            suave[1:-1] = 0.25 * delta_t[:-2] + 0.5 * delta_t[1:-1] + 0.25 * delta_t[2:]
+            delta_t = suave
         delta_t = np.clip(relaxation * delta_t, -damping * temperature,
                           damping * temperature)
         if surface_column is not None:

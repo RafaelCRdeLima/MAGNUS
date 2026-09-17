@@ -156,6 +156,54 @@ def _ordena_por_polarizacao(vectors: np.ndarray, order: np.ndarray) -> np.ndarra
     return saida
 
 
+def _ordena_por_elipticidade(vectors: np.ndarray, order: np.ndarray,
+                             angles: np.ndarray) -> np.ndarray:
+    """Rotula os modos pela ELIPTICIDADE K = -i E_x/E_y, como a literatura faz.
+
+    van Adelsberg & Lai (2006), Eqs. 18 e 21: no referencial em que k esta em z e
+    B no plano xz, os dois modos tem elipticidade
+
+        K_j = beta [1 + (-1)^j sqrt(1 + r/beta^2)] = beta -+ sign(beta) sqrt(beta^2 + r),
+
+    e "j = 1 corresponds to the X-mode (|K1| < 1) and j = 2 corresponds to the
+    O-mode". Como |K_1| = sqrt(beta^2+r) - |beta| e |K_2| = sqrt(beta^2+r) +
+    |beta|, vale SEMPRE |K_1| < |K_2|: o modo X e o de MENOR |K|. Esse teste nao
+    precisa de beta nem dos parametros do vacuo, so do autovetor.
+
+    Por que isso importa. Nas camadas externas os dois n^2 sao degenerados: em
+    rho = 1e-6 g/cm^3 e 0,3 keV, v = (E_pe/E)^2 = 9e-9, e os dois n^2 valem
+    1,00000 nas cinco casas. Ordenar por |n^2| ali e ordenar RUIDO. Com o vacuo
+    ligado a birrefringencia do vacuo (4e-5) desempata, e desempata ao contrario:
+    medido, o canal 0 passa a receber a opacidade do modo OPACO (tau 2,1e-4 no
+    lugar de 4,7e-7 em tau_T = 2e-4, os mesmos dois numeros trocados). O modo que
+    deveria levar o fluxo para fora fica opaco, a radiacao e represada e as
+    camadas externas esquentam 40 a 80 por cento acima dos perfis publicados.
+    A elipticidade nao degenera nesse limite, porque a polarizacao continua bem
+    definida mesmo quando os dois n^2 coincidem.
+
+    E tambem a base que a Eq. 16 do Suleimanov, Potekhin & Werner (2009) supoe:
+    la os rotulos 1 e 2 sao X e O, e o salto troca as intensidades entre eles.
+    """
+    escolhidos = np.take_along_axis(vectors, order[..., None, :], axis=-1)
+    mais, menos = escolhidos[..., 0, :], escolhidos[..., 1, :]
+    longitudinal = escolhidos[..., 2, :]
+    # volta da base ciclica (em torno de B) para cartesiano no referencial de B
+    raiz = 1.0 / np.sqrt(2.0)
+    e_x = (mais + menos) * raiz
+    e_y = -1j * (mais - menos) * raiz
+    # gira para o referencial do raio: x_k = cos(theta) x_B + sin(theta) z_B
+    cos_t = np.cos(angles)[None, None, :, None]
+    sin_t = np.sin(angles)[None, None, :, None]
+    e_xk = cos_t * e_x + sin_t * longitudinal
+    # |K| = |E_xk| / |E_yk|; compara em produto cruzado para nao dividir por zero
+    ex, ey = np.abs(e_xk), np.abs(e_y)
+    troca = ex[..., 0] * ey[..., 1] > ex[..., 1] * ey[..., 0]
+    saida = order.copy()
+    saida[..., 0] = np.where(troca, order[..., 1], order[..., 0])
+    saida[..., 1] = np.where(troca, order[..., 0], order[..., 1])
+    return saida
+
+
 def mode_amplitudes(energy_kev: np.ndarray, theta_b: float, density: float,
                     field_g: float, vacuum: bool = False,
                     details: bool = False, ordering: str = "n2"):
@@ -282,6 +330,8 @@ def vacuum_amplitudes_averaged(energy_kev: np.ndarray, angles: np.ndarray,
         order = _ordena_propagantes(values, order, axis=-1)
     elif ordering == "polarizacao":
         order = _ordena_por_polarizacao(vectors, order)
+    elif ordering == "elipticidade":
+        order = _ordena_por_elipticidade(vectors, order, angles)
     chosen = np.take_along_axis(vectors, order[..., None, :], axis=-1)  # (...,3,2)
     chosen = np.moveaxis(chosen, -1, -2)                               # (...,2,3)
     chosen = chosen / np.linalg.norm(chosen, axis=-1, keepdims=True)
@@ -904,6 +954,7 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
         jump_index = None
         if vacuum and conversion != "full":
             direto = formal == "direto"
+            diabatico = ordering in ("elipticidade", "polarizacao")
             if direto:
                 jump_probability = np.ones((energies.size, mu.size))
                 jump_index = np.full(energies.size, -1, dtype=int)
@@ -917,8 +968,9 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
                 if d < 2 or d >= y.size - 1:
                     continue
                 if conversion == "none":
-                    # troca completa: P = 0,99 para todo angulo
-                    p_jump = np.full(mu.size, 0.01)
+                    # "none" = NENHUMA conversao fisica = salto nao adiabatico
+                    # certo, P_jump = 1 para todo angulo
+                    p_jump = np.ones(mu.size)
                 else:
                     dz = (y[d] - y[d - 1]) / max(float(density[d]), 1.0e-30)
                     scale = dz / max(float(log_rho[d] - log_rho[d - 1]), 1.0e-12)
@@ -932,9 +984,19 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
                 # Suleimanov, Potekhin & Werner (2009), Eq. (16), seguindo van
                 # Adelsberg & Lai (2006): na ressonancia a intensidade de um modo
                 # vira P_jump dela mesma mais (1 - P_jump) da outra.
+                # A BASE decide o que e "trocar". Com rotulagem ADIABATICA (n2,
+                # propagante) os canais ja trocam de carater sozinhos ao cruzar a
+                # ressonancia, entao o evento a impor e o salto NAO adiabatico, de
+                # probabilidade P_jump. Com rotulagem DIABATICA (elipticidade,
+                # polarizacao) cada canal guarda a sua polarizacao, e o que se
+                # impoe e a Eq. 16 como esta escrita, que troca a fracao
+                # 1 - P_jump. Trocar as duas coisas inverte a conversao.
+                troca_fracao = (1.0 - p_jump) if diabatico else p_jump
                 if direto:
                     jump_index[ie] = d
-                    jump_probability[ie] = np.minimum(p_jump, 0.99)
+                    # polarized_direct aplica I_1 -> P I_1 + (1 - P) I_2, ou seja
+                    # a fracao trocada e 1 - P.
+                    jump_probability[ie] = np.clip(1.0 - troca_fracao, 0.01, 1.0)
                     continue
                 # No Feautrier isso so cabe como espalhamento de troca de
                 # espessura t = -ln(1 - P) dentro da celula, com P limitado a
@@ -943,7 +1005,8 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
                 # publicados de van Adelsberg & Lai (2006), fator 1,4 a 2,2 de
                 # aquecimento a mais do que a literatura. Ver formal="direto".
                 for im, cosine in enumerate(mu):
-                    t_cross = -np.log(max(1.0 - min(float(p_jump[im]), 0.99), 1.0e-13))
+                    t_cross = -np.log(max(1.0 - min(float(troca_fracao[im]), 0.99),
+                                          1.0e-13))
                     chi_ex = t_cross * cosine / max(float(y[d] - y[d - 1]), 1.0e-30)
                     for mode in (0, 1):
                         c = mode * mu.size + im

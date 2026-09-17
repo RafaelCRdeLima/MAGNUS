@@ -241,7 +241,8 @@ def mode_amplitudes(energy_kev: np.ndarray, theta_b: float, density: float,
 
 def vacuum_amplitudes_averaged(energy_kev: np.ndarray, angles: np.ndarray,
                                density: np.ndarray, field_g: float,
-                               ordering: str = "n2") -> np.ndarray:
+                               ordering: str = "n2",
+                               return_evanescent: bool = False):
     """|e_α^j|² mediada sobre `angles` (raio-CAMPO), com vácuo. (n_E, n_D, 2, 3).
 
     A mesma matemática de `mode_amplitudes` (base cíclica, autoproblema com μ⁻¹
@@ -284,7 +285,13 @@ def vacuum_amplitudes_averaged(energy_kev: np.ndarray, angles: np.ndarray,
     chosen = np.take_along_axis(vectors, order[..., None, :], axis=-1)  # (...,3,2)
     chosen = np.moveaxis(chosen, -1, -2)                               # (...,2,3)
     chosen = chosen / np.linalg.norm(chosen, axis=-1, keepdims=True)
-    return np.mean(np.abs(chosen) ** 2, axis=2)                       # (nE,nD,2,3)
+    amplitudes = np.mean(np.abs(chosen) ** 2, axis=2)                 # (nE,nD,2,3)
+    if not return_evanescent:
+        return amplitudes
+    with np.errstate(divide="ignore", invalid="ignore"):
+        n2 = np.real(1.0 / np.take_along_axis(values, order, axis=-1))   # (nE,nD,nA,2)
+    evanescente = np.mean(~(n2 > 0.0), axis=2) > 0.5                     # (nE,nD,2)
+    return amplitudes, evanescente
 
 
 # --------------------------------------------------------------------------- #
@@ -677,7 +684,8 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
           surface_column: float | None = None,
           conversion: str = "full", trace: list | None = None,
           atomic: bool = False, ng_every: int = 5,
-          ordering: str = "n2", smooth_correction: bool = False) -> dict:
+          ordering: str = "n2", smooth_correction: bool = False,
+          thermalize_evanescent: bool = False) -> dict:
     """Atmosfera magnetizada, campo ao longo da normal: o caso dos `ThB00`.
 
     A mesma máquina do estágio 1 — hidrostática P = g·y, Unsöld–Lucy com
@@ -774,13 +782,24 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
         density = pressure * estrutura.PROTON_MASS / (2.0 * estrutura.BOLTZMANN * temperature)
         if vacuum:
             stack = np.zeros((energies.size, 2 * mu.size, 3, y.size))
+            # Onde Re(n^2) <= 0 o modo NAO SE PROPAGA (corte de plasma do modo
+            # ordinario, E = E_pe). Sao 2,1% das celulas, e em 0,29 keV isso comeca
+            # exatamente em rho = 106 g/cc, onde E_pe = 0,295 keV. Termalizar esse
+            # canal (`thermalize_evanescent`) PIOROU o erro de fluxo de 2,3e-2 para
+            # 3,8e-1 (medido 17/09/2026): a opacidade enorme no corte e mais um
+            # degrau para o Feautrier atravessar. O tratamento correto e mais fundo:
+            # abaixo do corte so um modo se propaga, e a emissao local deveria ir
+            # inteira para ele em vez de B/2 para cada canal. Fica pendente.
+            evanescente = np.zeros((energies.size, 2 * mu.size, y.size), dtype=bool)
             safe_density = np.maximum(density, 1.0e-30)
             for im in range(mu.size):                    # uma chamada por μ
-                block = vacuum_amplitudes_averaged(
+                block, evan = vacuum_amplitudes_averaged(
                     energies, vacuum_angles[im], safe_density, field_g,
-                    ordering=ordering)                                  # (nE,nD,2,3)
+                    ordering=ordering, return_evanescent=True)          # (nE,nD,2,3)
                 stack[:, im] = block[:, :, 0].transpose(0, 2, 1)       # (nE,3,nD)
                 stack[:, mu.size + im] = block[:, :, 1].transpose(0, 2, 1)
+                evanescente[:, im] = evan[:, :, 0]
+                evanescente[:, mu.size + im] = evan[:, :, 1]
             amplitudes = stack
         absorption_cyclic = cyclic_free_free(grid, density[None, :],
                                              temperature[None, :], field_g)  # (nE,nD,3)
@@ -812,6 +831,13 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
                                (energies.size, mu_channel.size, 3, y.size))
         absorption = np.einsum("ecad,eda->ecd", wide, absorption_cyclic)
         scattering = np.einsum("ecad,eda->ecd", wide, scattering_cyclic)
+        if vacuum and thermalize_evanescent and evanescente.any():
+            # Espesso o bastante para termalizar dentro da celula (tau ~ 30) e nao
+            # mais: um valor global enorme estourava a iteracao (NaN no tensor).
+            passo = np.gradient(y); passo[passo <= 0.0] = np.min(passo[passo > 0.0])
+            espesso = np.broadcast_to(30.0 / passo, absorption.shape)
+            absorption = np.where(evanescente, espesso, absorption)
+            scattering = np.where(evanescente, 0.0, scattering)
         extinction = absorption + scattering
         # Piso no INCREMENTO de tau, e é numérico declarado, não física: com o
         # vácuo dominante o modo X fica com e_z exatamente zero em todo ângulo e

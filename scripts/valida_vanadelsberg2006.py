@@ -128,6 +128,30 @@ def compara(chave: str, sol: dict) -> dict:
     }
 
 
+K_B_CGS = 1.380649e-16
+M_H_CGS = 1.67262192369e-24
+
+
+def diagnostico_ressonancia(r: dict) -> list[dict]:
+    """Onde cai a ressonancia de vaco, em tau, e qual o desvio da T ali.
+
+    Usa a hidrostatica do proprio perfil (P = g y, gas ideal de H ionizado) para
+    converter tau em densidade, e compara com rho_V = 0,96 E^2 B_14^2 g/cm^3.
+    """
+    campo = TABELA1[r["modelo"]][0]
+    tau = np.array(r["tau"])
+    t = 1.0e6 * 10.0 ** np.array(r["log10T6_magnus"])
+    rho = G_VAL06 * (tau / KAPPA_T) * M_H_CGS / (2.0 * K_B_CGS * t)
+    rel = 10.0 ** (np.array(r["log10T6_magnus"]) - np.array(r["log10T6_val06"])) - 1.0
+    saida = []
+    for energia in (0.15, 0.26, 0.5, 1.0):
+        rho_v = 0.96 * energia ** 2 * (campo / 1.0e14) ** 2
+        i = int(np.argmin(np.abs(np.log(rho / rho_v))))
+        saida.append({"energia_keV": energia, "rho_V": float(rho_v),
+                      "tau": float(tau[i]), "dif_relativa": float(rel[i])})
+    return saida
+
+
 def figura(resultados: list[dict], destino: Path) -> None:
     import matplotlib
     matplotlib.use("Agg")
@@ -153,6 +177,12 @@ def figura(resultados: list[dict], destino: Path) -> None:
         baixo.plot(tau, 100.0 * rel, lw=1.2, color="crimson")
         baixo.set_xscale("log"); baixo.set_xlabel(r"$\tau$ (Thomson)")
         baixo.set_ylabel("diferenca (%)")
+        for d in r.get("ressonancia", []):
+            for eixo in (cima, baixo):
+                eixo.axvline(d["tau"], color="steelblue", lw=0.8, ls=":")
+            cima.annotate(f"{d['energia_keV']:.2f} keV", (d["tau"], 0.97),
+                          xycoords=("data", "axes fraction"), fontsize=6,
+                          color="steelblue", rotation=90, va="top", ha="right")
     fig.tight_layout()
     fig.savefig(destino, dpi=140)
     fig.savefig(destino.with_suffix(".pdf"))
@@ -166,6 +196,8 @@ def main() -> None:
     p.add_argument("--iteracoes", type=int, default=300)
     p.add_argument("--mu", type=int, default=6, help="nos de Gauss-Legendre em mu")
     p.add_argument("--saida", default="exploracoes/validacao_val06")
+    p.add_argument("--apenas-analise", action="store_true",
+                   help="refaz diagnostico e figura a partir do resultado.json ja gravado")
     args = p.parse_args()
 
     if args.todos:
@@ -175,11 +207,25 @@ def main() -> None:
 
     destino = RAIZ / args.saida
     destino.mkdir(parents=True, exist_ok=True)
+    if args.apenas_analise:
+        resultados = json.loads((destino / "resultado.json").read_text())
+        for r in resultados:
+            r["ressonancia"] = diagnostico_ressonancia(r)
+            print(f"[{r['modelo']}] mediana {100*r['dif_relativa_mediana']:.2f} %, "
+                  f"maxima {100*r['dif_relativa_maxima']:.2f} %")
+            for d in r["ressonancia"]:
+                print(f"[{r['modelo']}] ressonancia de {d['energia_keV']:.2f} keV em "
+                      f"tau = {d['tau']:.1e}, desvio de T ali {100*d['dif_relativa']:+.0f} %")
+        (destino / "resultado.json").write_text(json.dumps(resultados, indent=1))
+        figura(resultados, destino / "fig_perfil.png")
+        print("gravado em", destino)
+        return
     resultados = []
     for chave in chaves:
         print(f"[{chave}] rodando o MAGNUS ...", flush=True)
         sol = roda_magnus(chave, args.iteracoes, args.mu)
         r = compara(chave, sol)
+        r["ressonancia"] = diagnostico_ressonancia(r)
         resultados.append(r)
         print(f"[{chave}] erro de fluxo {r['erro_fluxo']:.2e} em {r['iteracoes']} it, "
               f"{r['segundos']:.0f} s\n"
@@ -187,6 +233,10 @@ def main() -> None:
               f"{100*r['dif_relativa_mediana']:.2f} %, rms "
               f"{100*r['dif_relativa_rms']:.2f} %, maxima "
               f"{100*r['dif_relativa_maxima']:.2f} %", flush=True)
+        for d in r["ressonancia"]:
+            print(f"[{chave}] ressonancia de {d['energia_keV']:.2f} keV em "
+                  f"tau = {d['tau']:.1e}, desvio de T ali {100*d['dif_relativa']:+.0f} %",
+                  flush=True)
     (destino / "resultado.json").write_text(json.dumps(resultados, indent=1))
     figura(resultados, destino / "fig_perfil.png")
     print("gravado em", destino)

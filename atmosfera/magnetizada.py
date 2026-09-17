@@ -191,10 +191,13 @@ def _ordena_por_elipticidade(vectors: np.ndarray, order: np.ndarray,
     raiz = 1.0 / np.sqrt(2.0)
     e_x = (mais + menos) * raiz
     e_y = -1j * (mais - menos) * raiz
-    # gira para o referencial do raio: x_k = cos(theta) x_B + sin(theta) z_B
-    cos_t = np.cos(angles)[None, None, :, None]
-    sin_t = np.sin(angles)[None, None, :, None]
-    e_xk = cos_t * e_x + sin_t * longitudinal
+    # Gira para o referencial do raio. Com k = sin(t) x_B + cos(t) z_B e o eixo y
+    # comum, x_k = y_k x k = cos(t) x_B - sin(t) z_B, e entao k x B = -sin(t) y,
+    # que e a convencao de van Adelsberg & Lai (2006). O sinal do termo
+    # longitudinal NAO e livre: o global e, o relativo nao.
+    cos_t = np.asarray(np.cos(angles))[..., None]
+    sin_t = np.asarray(np.sin(angles))[..., None]
+    e_xk = cos_t * e_x - sin_t * longitudinal
     # |K| = |E_xk| / |E_yk|; compara em produto cruzado para nao dividir por zero
     ex, ey = np.abs(e_xk), np.abs(e_y)
     troca = ex[..., 0] * ey[..., 1] > ex[..., 1] * ey[..., 0]
@@ -277,6 +280,8 @@ def mode_amplitudes(energy_kev: np.ndarray, theta_b: float, density: float,
         order = _ordena_propagantes(values, order, axis=1)
     elif ordering == "polarizacao":
         order = _ordena_por_polarizacao(vectors, order)
+    elif ordering == "elipticidade":
+        order = _ordena_por_elipticidade(vectors, order, theta_b)
     rows = np.arange(n_energy)[:, None]
     chosen = vectors[rows, :, order]                            # (n_E, 2, 3) cíclico
     chosen = chosen / np.linalg.norm(chosen, axis=2, keepdims=True)
@@ -1236,6 +1241,7 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
                             field["I_surface"][:, mu.size:]),
         "source_channel": source_channel,
         "theta_b": theta_b, "field_g": field_g, "vacuum": vacuum,
+        "ordering": ordering,
         "flux_energy": 4.0 * np.pi * field["H_surface"],
         "flux_error": history[-1][1], "iterations": len(history), "history": history,
         "flux_depth": flux, "surface_temperature": temperature[-1],
@@ -1265,6 +1271,7 @@ def phi_resolved_intensity(solution: dict, phi: np.ndarray) -> np.ndarray:
     field_g = solution["field_g"]
     theta_b = solution["theta_b"]
     vacuum = solution["vacuum"]
+    rotulagem = solution.get("ordering", "n2")
     source = solution["source_channel"]
     n_mu = mu.size
 
@@ -1287,9 +1294,12 @@ def phi_resolved_intensity(solution: dict, phi: np.ndarray) -> np.ndarray:
                 if vacuum:
                     extinction = np.zeros((energies.size, y.size))
                     for depth in range(y.size):
+                        # MESMA rotulagem da estrutura: se o canal 0 for o modo
+                        # X la e o O aqui, o feixe sai com as opacidades trocadas.
                         amp = mode_amplitudes(energies, float(ray),
                                               max(float(density[depth]), 1.0e-30),
-                                              field_g, vacuum=True)[:, mode]
+                                              field_g, vacuum=True,
+                                              ordering=rotulagem)[:, mode]
                         extinction[:, depth] = np.einsum(
                             "ea,ea->e", amp, cyclic[:, depth])
                 else:

@@ -27,6 +27,11 @@ constexpr double planck_erg_s = 6.62607015e-27;
 constexpr double erg_per_kev = 1.602176634e-9;
 constexpr double kpc_to_cm = 3.0856775814913673e21;
 constexpr double kt_kev_per_mk = 0.08617333262145;
+//: Ciclotron do proton por gauss, hbar e B/(m_p c) em keV. E o MESMO numero que
+//: atmosfera/magnetizada.py usa para por a feicao dentro da tabela
+//: (CYCLOTRON_E_PER_GAUSS * MASS_RATIO); antes daqui havia um 0,63 arredondado,
+//: que deslocava o centro da linha em 0,08% em relacao a feicao tabelada.
+constexpr double proton_cyclotron_kev_per_gauss = 6.3048787654e-15;
 
 struct Vec3 {
     double x{}, y{}, z{};
@@ -224,6 +229,53 @@ struct Config {
 
 double deg(double value) { return value * pi / 180.0; }
 double clamp_unit(double value) { return std::clamp(value, -1.0, 1.0); }
+
+// Pesos de quadratura para o eixo de mu de uma tabela. Se os nos forem os de
+// Gauss-Legendre em [0,1] (o caso das tabelas do MAGNUS), devolve os pesos de
+// Gauss-Legendre, exatos para polinomios de grau 2n-1; senao, o trapezio.
+std::vector<double> gauss_legendre_unit_weights(const std::vector<float>& mu) {
+    const std::size_t n = mu.size();
+    std::vector<double> w(n, 0.0);
+    if (n == 1) { w[0] = 1.0; return w; }
+    // Nos e pesos de Gauss-Legendre em [-1,1] por Newton sobre P_n.
+    std::vector<double> xs(n), ws(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        double x = std::cos(pi * (static_cast<double>(i) + 0.75) / (static_cast<double>(n) + 0.5));
+        for (int it = 0; it < 100; ++it) {
+            double p0 = 1.0, p1 = 0.0;
+            for (std::size_t j = 0; j < n; ++j) {
+                const double p2 = p1; p1 = p0;
+                p0 = ((2.0 * static_cast<double>(j) + 1.0) * x * p1
+                      - static_cast<double>(j) * p2) / (static_cast<double>(j) + 1.0);
+            }
+            const double dp = static_cast<double>(n) * (x * p0 - p1) / (x * x - 1.0);
+            const double dx = -p0 / dp;
+            x += dx;
+            if (std::abs(dx) < 1.0e-15) break;
+        }
+        double p0 = 1.0, p1 = 0.0;
+        for (std::size_t j = 0; j < n; ++j) {
+            const double p2 = p1; p1 = p0;
+            p0 = ((2.0 * static_cast<double>(j) + 1.0) * x * p1
+                  - static_cast<double>(j) * p2) / (static_cast<double>(j) + 1.0);
+        }
+        const double dp = static_cast<double>(n) * (x * p0 - p1) / (x * x - 1.0);
+        xs[n - 1 - i] = x;                       // crescente
+        ws[n - 1 - i] = 2.0 / ((1.0 - x * x) * dp * dp);
+    }
+    bool sao_gl = true;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (std::abs(static_cast<double>(mu[i]) - 0.5 * (xs[i] + 1.0)) > 1.0e-5) { sao_gl = false; break; }
+    }
+    if (sao_gl) {
+        for (std::size_t i = 0; i < n; ++i) w[i] = 0.5 * ws[i];
+        return w;
+    }
+    w[0] = 0.5 * (mu[1] - mu[0]);
+    w[n - 1] = 0.5 * (mu[n - 1] - mu[n - 2]);
+    for (std::size_t m = 1; m + 1 < n; ++m) w[m] = 0.5 * (mu[m + 1] - mu[m - 1]);
+    return w;
+}
 
 class RayTable {
   public:
@@ -1092,14 +1144,13 @@ struct AtmosphereTable {
     void precompute_flux() {
         const std::size_t nB = log_b.size(), nT = log_t.size(), nG = log_g.size(),
                           nb = theta_b_deg.size(), nm = mu.size(), ne = log_e.size();
-        std::vector<double> wtrap(nm, 0.0);
-        if (nm == 1) {
-            wtrap[0] = 1.0;
-        } else {
-            wtrap[0] = 0.5 * (mu[1] - mu[0]);
-            wtrap[nm - 1] = 0.5 * (mu[nm - 1] - mu[nm - 2]);
-            for (std::size_t m = 1; m + 1 < nm; ++m) wtrap[m] = 0.5 * (mu[m + 1] - mu[m - 1]);
-        }
+        // Os eixos de mu das tabelas do MAGNUS sao os nos de Gauss-Legendre em
+        // [0,1] (scripts/tabela_campo_g_grade.py), e para esses nos o trapezio e
+        // uma quadratura ruim: medido na tabela de producao, a razao de fluxo
+        // saia 0,6% alta na mediana da banda e 1,4% em 1,2 keV, um erro que
+        // INCLINA o continuo do modo de camadas (f < 1). Usa-se Gauss-Legendre
+        // quando os nos sao os de Gauss-Legendre, e o trapezio como reserva.
+        std::vector<double> wtrap = gauss_legendre_unit_weights(mu);
         double denom = 0.0;
         for (std::size_t m = 0; m < nm; ++m) denom += mu[m] * wtrap[m];
         flux_log.assign(nB * nT * nG * nb * ne, 0.0f);
@@ -2122,7 +2173,7 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
         const double radius_cm_surface = cfg.radius_km * 1.0e5;
         const double redshift = 1.0 /
             std::sqrt(std::max(1.0e-6, 1.0 - 2.0 * mass_cm / radius_cm_surface));
-        const double gravity = 8.98755178736817e20 * mass_cm * redshift /
+        const double gravity = c_cm_s * c_cm_s * mass_cm * redshift /
             (radius_cm_surface * radius_cm_surface);
         anisotropy = table.ratio_at(
             std::log10(std::max(1.0, representative_mk * 1.0e6)),
@@ -2161,7 +2212,7 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
         const double redshift = 1.0 /
             std::sqrt(std::max(1.0e-6, 1.0 - 2.0 * mass_cm / radius_cm_surface));
         log_b_value = cfg.magnetic_field_g > 0.0 ? std::log10(cfg.magnetic_field_g) : 0.0;
-        log_g_value = std::log10(std::max(1.0, 8.98755178736817e20 * mass_cm *
+        log_g_value = std::log10(std::max(1.0, c_cm_s * c_cm_s * mass_cm *
             redshift / (radius_cm_surface * radius_cm_surface)));
     }
 
@@ -2249,7 +2300,7 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
                 // Com campo variável, a linha de cada elemento fica no E_cp do
                 // SEU B: a feição integrada é um blend sobre o disco visível.
                 const double line_E = cfg.line_cyclotron
-                    ? 0.63 * (local_field ? std::pow(10.0, lb) : cfg.magnetic_field_g) / 1.0e14
+                    ? proton_cyclotron_kev_per_gauss * (local_field ? std::pow(10.0, lb) : cfg.magnetic_field_g)
                     : cfg.line_energy_kev;
                 const double emitted_intensity = base *
                     line_transmission(emitted_energy, line_E,

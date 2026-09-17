@@ -47,7 +47,10 @@ MASS_RATIO = 5.446170214889e-4
 ELECTRON_REST_KEV = 510.99895
 FINE_STRUCTURE = 7.2973525693e-3
 #: Campo crítico da QED, m_e^2 c^3 / (e hbar), em gauss.
-CRITICAL_FIELD_G = 4.41405e13
+#: Por definicao hbar omega_ce(B_Q) = m_e c^2, entao B_Q sai das duas constantes
+#: acima em vez de ser um terceiro numero: assim o trio fecha exatamente (antes
+#: fechava a 6,5e-6, o que aparecia em delta do vacuo, proporcional a 1/B_Q^2).
+CRITICAL_FIELD_G = ELECTRON_REST_KEV / CYCLOTRON_E_PER_GAUSS
 #: Amortecimento radiativo clássico: Gamma(E) = (2 alfa/3) E^2 / (m c^2).
 def _radiative_damping(energy_kev: np.ndarray, mass_kev: float) -> np.ndarray:
     return (2.0 * FINE_STRUCTURE / 3.0) * energy_kev ** 2 / mass_kev

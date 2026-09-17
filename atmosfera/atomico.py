@@ -98,7 +98,10 @@ def ground_binding_at_rest(field_g: np.ndarray | float, s: int = 0) -> np.ndarra
 #
 # Table 1, LINHA s=0: [lg(m_eff/m_H), q0, α, q2] nos γ tabelados. A coluna E^(0)
 # foi conferida contra a Eq.10 (0,3%); estes parâmetros são interpolados em lg γ.
-_MASS_H_ME = 1836.15267            # m_H / m_e (próton + elétron, u.a. de massa)
+#: m_H/m_e do ATOMO (proton + eletron). O valor anterior, 1836,15267, era
+#: m_p/m_e: o rotulo dizia atomo e o numero era do proton, 5,4e-4 de diferenca
+#: na escala de pseudomomento K_c e na massa efetiva.
+_MASS_H_ME = 1837.152673            # m_H / m_e (próton + elétron, u.a. de massa)
 _TABLE1_S0_GAMMA = np.array([300., 600., 1000., 2000., 3000., 10000.])
 _TABLE1_S0 = {
     "lg_meff": np.array([0.009, 0.042, 0.072, 0.141, 0.175, 0.319]),

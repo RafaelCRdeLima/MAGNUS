@@ -56,7 +56,7 @@ MANIFEST = PULSARIS / "instrument_data" / "profiles" / "manifest.json"
 ABSORPTION = PULSARIS / "instrument_data" / "absorption" / "tbabs_wilm.csv"
 KEV_PER_MK = 0.08617333262145
 #: GM_sol/c² em km: u = 2·GM/(Rc²) = 2·(1,476625)·(M/M_sol)/R[km].
-_GM_SUN_C2_KM = 1.476625
+_GM_SUN_C2_KM = 1.4766250385   # identico ao gm_sun_over_c2_km do motor
 
 
 def read_events(path: Path) -> tuple[dict[str, str], list[tuple[float, float]]]:

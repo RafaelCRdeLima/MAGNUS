@@ -749,7 +749,7 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
           surface_column: float | None = None,
           conversion: str = "full", trace: list | None = None,
           atomic: bool = False, ng_every: int = 5,
-          ordering: str = "n2", smooth_correction: bool = False,
+          ordering: str = "elipticidade", smooth_correction: bool = False,
           thermalize_evanescent: bool = False,
           matched_grid: bool = False, formal: str = "feautrier") -> dict:
     """Atmosfera magnetizada, campo ao longo da normal: o caso dos `ThB00`.
@@ -760,6 +760,14 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
     componentes cíclicas. Cada modo emite kappa_c B/2, e a soma sobre canais
     com os pesos w̃ (que somam 1 sobre os DOIS modos) devolve o balanço de
     energia sem meio fator perdido.
+
+    `ordering` escolhe como os dois modos sao ROTULADOS, e so importa com vacuo
+    (sem vacuo as amplitudes nao sao recalculadas por profundidade). O padrao e
+    "elipticidade", a rotulagem de van Adelsberg & Lai (2006), Eq. 21. O antigo
+    "n2" esta MEDIDO como errado: nas camadas externas os dois n^2 sao
+    degenerados (v = 9e-9 contra birrefringencia do vacuo de 4e-5) e a ordenacao
+    por modulo poe o modo OPACO no canal do transparente em tres de cinco
+    profundidades. Ver docs/vacuo_convergencia_literatura.md.
 
     `formal` escolhe o integrador do transporte. "feautrier" é o padrão
     histórico, implícito no espalhamento. "direto" é a característica curta

@@ -677,6 +677,16 @@ def channel_geometry(energy_kev: np.ndarray, mu: np.ndarray, field_g: float,
     }
 
 
+def _densidade_cinza(y: np.ndarray, log_t_eff: float, log_g: float) -> np.ndarray:
+    """Perfil de densidade do palpite cinza, so para posicionar as ressonancias."""
+    from . import estrutura
+    efetiva = 10.0 ** log_t_eff
+    gravidade = 10.0 ** log_g
+    temperatura = estrutura._initial_temperature(efetiva, estrutura.THOMSON_CM2_G * y)
+    pressao = gravidade * y
+    return pressao * estrutura.PROTON_MASS / (2.0 * estrutura.BOLTZMANN * temperatura)
+
+
 def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
           energies: np.ndarray | None = None, columns: np.ndarray | None = None,
           mu_nodes: int = 6, iterations: int = 200, tolerance: float = 1.0e-5,
@@ -685,7 +695,8 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
           conversion: str = "full", trace: list | None = None,
           atomic: bool = False, ng_every: int = 5,
           ordering: str = "n2", smooth_correction: bool = False,
-          thermalize_evanescent: bool = False) -> dict:
+          thermalize_evanescent: bool = False,
+          matched_grid: bool = False) -> dict:
     """Atmosfera magnetizada, campo ao longo da normal: o caso dos `ThB00`.
 
     A mesma máquina do estágio 1 — hidrostática P = g·y, Unsöld–Lucy com
@@ -710,6 +721,25 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
                                   max(41, int(24 * np.log10(surface_column * 1.0e6))))
     else:
         y = estrutura.column_grid() if columns is None else columns
+    if vacuum and matched_grid:
+        # GRADE CASADA ("equal grid", Ho & Lai 2003; Suleimanov, Potekhin & Werner
+        # 2009): a ressonancia de vacuo e estreita em densidade, e cai ENTRE dois
+        # pontos da grade de profundidade (medido: largura 0,09 em ln rho a 0,3
+        # keV contra celulas de 0,20). Refinar a profundidade nao resolveu. A
+        # receita da literatura e o contrario: para cada ponto de profundidade
+        # acrescenta-se a energia cuja ressonancia cai exatamente ali,
+        #     E_V(rho) = sqrt(rho / 0,96) / B_14   keV,
+        # de modo que nenhuma ressonancia fique entre nos. A densidade muda com a
+        # temperatura, entao isto usa o perfil cinza inicial; e uma aproximacao do
+        # recalculo por iteracao que os autores fazem.
+        # MEDIDO (17/09/2026): sozinha, a grade casada NAO melhorou (erro de fluxo
+        # 2,35e-2 -> 2,69e-2) e custa +50% de tempo. Na receita original ela vem
+        # junto com a opacidade MEDIADA no intervalo (E_{i-1}, E_{i+1}), que ainda
+        # nao temos; por isso fica opcional ate a media estar implementada.
+        rho_inicial = _densidade_cinza(y, log_t_eff, log_g)
+        extra = np.sqrt(np.maximum(rho_inicial, 0.0) / 0.96) / (field_g / 1.0e14)
+        extra = extra[(extra > energies[0]) & (extra < energies[-1])]
+        energies = np.unique(np.concatenate([energies, extra]))
     mu, weights = transporte.gauss_legendre_mu(mu_nodes)
     geometry = channel_geometry(energies, mu, field_g, theta_b=theta_b)
     # Amplitudes SEMPRE com o eixo de profundidade, por difusão de forma: sem
@@ -870,7 +900,7 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
                 if d < 2 or d >= y.size - 1:
                     continue
                 if conversion == "none":
-                    thickness = 30.0
+                    thickness = 4.6            # P = 0,99, o mesmo teto do parcial
                 else:
                     dz = (y[d] - y[d - 1]) / max(float(density[d]), 1.0e-30)
                     scale = dz / max(float(log_rho[d] - log_rho[d - 1]), 1.0e-12)
@@ -881,7 +911,16 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
                             ** (2.0 / 3.0) * max(scale / cosine, 1.0e-6) ** (-1.0 / 3.0)
                         p_jump = np.exp(-0.5 * np.pi
                                         * min((energies[ie] / max(e_ad, 1.0e-12)), 10.0) ** 3)
-                        t_cross = min(30.0, -np.log(max(1.0 - p_jump, 1.0e-13)))
+                        # Suleimanov, Potekhin & Werner (2009), Eq. (16), seguindo
+                        # van Adelsberg & Lai (2006): na ressonancia a intensidade
+                        # de um modo vira P_jump dela mesma mais (1 - P_jump) da
+                        # outra. Aqui isso e imposto como espessura de troca na
+                        # celula, t = -ln(1 - P), e o P e LIMITADO a 0,99: o valor
+                        # antigo (t <= 30, ou seja P = 1 - 1e-13) punha 30
+                        # profundidades opticas numa unica celula, um degrau que o
+                        # Feautrier nao atravessa. Com P = 0,99 a troca ja e
+                        # praticamente completa e t <= 4,6.
+                        t_cross = -np.log(max(1.0 - min(p_jump, 0.99), 1.0e-13))
                         chi_ex = t_cross * cosine / max(float(y[d] - y[d - 1]), 1.0e-30)
                         for mode in (0, 1):
                             c = mode * mu.size + im
@@ -891,7 +930,7 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
                     continue
                 # conversion == 'none': troca forte para os dois modos, todo mu
                 for im, cosine in enumerate(mu):
-                    chi_ex = 30.0 * cosine / max(float(y[d] - y[d - 1]), 1.0e-30)
+                    chi_ex = 4.6 * cosine / max(float(y[d] - y[d - 1]), 1.0e-30)
                     for mode in (0, 1):
                         c = mode * mu.size + im
                         partner = (1 - mode) * mu.size + im

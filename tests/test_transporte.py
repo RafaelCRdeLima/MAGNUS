@@ -22,6 +22,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from atmosfera import transporte                                    # noqa: E402
 from atmosfera.transporte import (                                  # noqa: E402
     coherent_scattering, comptonized_feautrier, coupled_feautrier,
     gauss_legendre_mu, grey_milne, optical_depth_grid)
@@ -385,3 +386,93 @@ class TestLinearizacaoConjunta(unittest.TestCase):
             created = np.trapezoid(moved[:, column] / self.energies, self.energies)
             present = np.trapezoid(planck[:, column] / self.energies, self.energies)
             self.assertLess(abs(created / present), 1.0e-8)
+
+
+class IntegracaoDireta(unittest.TestCase):
+    """O integrador direto: característica curta parabólica nos dois sentidos.
+
+    É a alternativa ao Feautrier exigida pela conversão de modos, que é uma
+    descontinuidade e não cabe na substituição para frente e para trás
+    (van Adelsberg & Lai 2006, §3.1.1). Os portões aqui são os mesmos de sempre:
+    solução exata onde ela existe, e o Feautrier como segunda opinião onde não.
+    """
+
+    def monta(self, n_depth=100, n_mu=3, albedo=0.0, tau_max=1.0e4):
+        mu, weights = transporte.gauss_legendre_mu(n_mu)
+        mu_channel = np.tile(mu, 2)
+        weight_channel = np.tile(weights, 2)
+        n_channel = 2 * n_mu
+        eixo = np.concatenate(([0.0], np.logspace(-6, np.log10(tau_max), n_depth - 1)))
+        tau = np.broadcast_to(eixo, (1, n_channel, n_depth)).copy()
+        into = np.zeros((1, 3, n_channel, n_depth))
+        out_of = np.zeros((1, 3, n_channel, n_depth))
+        if albedo:
+            into[:, 0, :, :] = albedo / 2.0
+            out_of[:, 0, :, :] = weight_channel[None, :, None]
+        return tau, mu_channel, weight_channel, into, out_of
+
+    def test_fonte_linear_e_exata(self):
+        """S = a + b tau dá I(0) = a + b mu, e o integrador tem que acertar."""
+        tau, mu_c, w_c, into, out_of = self.monta()
+        a, b = 0.3, 0.05
+        fonte = a + b * tau
+        direto = transporte.polarized_direct(tau, mu_c, w_c, fonte, into, out_of)
+        exato = a + b * mu_c
+        erro = np.max(np.abs(direto["I_surface"][0] - exato) / exato)
+        self.assertLess(erro, 1.0e-6)
+
+    def test_bate_com_o_feautrier_no_espalhamento(self):
+        """Com espalhamento dominante os dois métodos têm que convergir juntos.
+
+        A lei do raiz de epsilon é o portão analítico: J(0) -> sqrt(eps) B. Aqui
+        basta que os dois concordem, porque é o mesmo problema discreto.
+        """
+        for albedo in (0.9, 0.99):
+            with self.subTest(albedo=albedo):
+                tau, mu_c, w_c, into, out_of = self.monta(albedo=albedo)
+                termico = np.full(tau.shape, (1.0 - albedo) / 2.0)
+                feautrier = transporte.polarized_feautrier(tau, mu_c, w_c, termico,
+                                                           into, out_of)
+                direto = transporte.polarized_direct(tau, mu_c, w_c, termico,
+                                                     into, out_of, tolerance=1.0e-12,
+                                                     iterations=2000)
+                # no fundo os dois têm que termalizar em B = 1
+                self.assertAlmostEqual(direto["J"][0, -1], 1.0, places=6)
+                razao = direto["J"][0, 0] / feautrier["J"][0, 0]
+                self.assertAlmostEqual(razao, 1.0, delta=5.0e-3)
+
+    def test_salto_de_conversao_mistura_os_modos(self):
+        """Na ressonância, I_1 -> P I_1 + (1 - P) I_2 (SPW09, Eq. 16).
+
+        Com os dois modos termalizando em fontes DIFERENTES e a ressonância
+        colocada onde a camada acima é opticamente fina, a intensidade que sai
+        no modo 1 é, a menos da fina camada de cima, P S_1 + (1 - P) S_2.
+        """
+        n_depth, n_mu = 60, 3
+        tau, mu_c, w_c, into, out_of = self.monta(n_depth=n_depth, n_mu=n_mu)
+        fonte = np.zeros(tau.shape)
+        fonte[:, :n_mu, :] = 1.0                      # modo 1
+        fonte[:, n_mu:, :] = 4.0                      # modo 2
+        # ressonancia bem no alto, onde a camada acima e opticamente fina e
+        # quase nao retermaliza a intensidade que passou pelo salto
+        alvo = int(np.searchsorted(tau[0, 0], 1.0e-4))
+        for p in (1.0, 0.5, 0.0):
+            with self.subTest(p=p):
+                salto = transporte.polarized_direct(
+                    tau, mu_c, w_c, fonte, into, out_of,
+                    jump_probability=np.full((1, n_mu), p),
+                    jump_index=np.array([alvo]))
+                previsto = p * 1.0 + (1.0 - p) * 4.0
+                saida = salto["I_surface"][0, :n_mu].mean()
+                self.assertAlmostEqual(saida / previsto, 1.0, delta=2.0e-2)
+
+    def test_sem_salto_reproduz_o_caso_sem_vacuo(self):
+        """P = 1 é não converter: tem que dar exatamente o mesmo que sem salto."""
+        n_mu = 3
+        tau, mu_c, w_c, into, out_of = self.monta(n_depth=60, n_mu=n_mu)
+        fonte = np.full(tau.shape, 0.5)
+        sem = transporte.polarized_direct(tau, mu_c, w_c, fonte, into, out_of)
+        com = transporte.polarized_direct(tau, mu_c, w_c, fonte, into, out_of,
+                                          jump_probability=np.ones((1, n_mu)),
+                                          jump_index=np.array([30]))
+        self.assertTrue(np.allclose(sem["I_surface"], com["I_surface"], rtol=1.0e-12))

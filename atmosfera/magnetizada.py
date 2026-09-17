@@ -696,7 +696,7 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
           atomic: bool = False, ng_every: int = 5,
           ordering: str = "n2", smooth_correction: bool = False,
           thermalize_evanescent: bool = False,
-          matched_grid: bool = False) -> dict:
+          matched_grid: bool = False, formal: str = "feautrier") -> dict:
     """Atmosfera magnetizada, campo ao longo da normal: o caso dos `ThB00`.
 
     A mesma máquina do estágio 1 — hidrostática P = g·y, Unsöld–Lucy com
@@ -705,6 +705,12 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
     componentes cíclicas. Cada modo emite kappa_c B/2, e a soma sobre canais
     com os pesos w̃ (que somam 1 sobre os DOIS modos) devolve o balanço de
     energia sem meio fator perdido.
+
+    `formal` escolhe o integrador do transporte. "feautrier" é o padrão
+    histórico, implícito no espalhamento. "direto" é a característica curta
+    parabólica varrida nos dois sentidos, que é o que van Adelsberg & Lai (2006)
+    usam e a única forma de impor o salto de conversão de modos EXATO, sem
+    inventar opacidade na célula da ressonância. Ver `transporte.polarized_direct`.
 
     Sem comptonização e sem ionização parcial — as duas dívidas continuam as do
     estágio 1, e valem aqui o que valem lá.
@@ -762,6 +768,7 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
     temperature = estrutura._initial_temperature(effective, estrutura.THOMSON_CM2_G * y)
     grid = energies[:, None]
     history = []
+    campo_anterior = None          # partida quente do integrador direto
     previous_step = np.zeros(y.size)
     relaxation = np.ones(y.size)
     # Aceleração de Ng/Anderson na SEQUÊNCIA DE TEMPERATURA (lg T): o Unsöld-Lucy
@@ -889,9 +896,19 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
         # já seguem os ramos ADIABÁTICOS (ordenação contínua por n^2), então o
         # salto não adiabático é o evento de troca. conversion='full' (P=0) é o
         # adiabático puro que já tínhamos; 'none' força a troca completa.
+        # A troca de modos: como ela entra depende do integrador.
+        #   Feautrier  -> espalhamento de troca na celula (opacidade falsa)
+        #   direto     -> salto exato na travessia, sem opacidade nenhuma
         exchange = None
+        jump_probability = None
+        jump_index = None
         if vacuum and conversion != "full":
-            exchange = np.zeros((energies.size, n_channel, n_channel, y.size))
+            direto = formal == "direto"
+            if direto:
+                jump_probability = np.ones((energies.size, mu.size))
+                jump_index = np.full(energies.size, -1, dtype=int)
+            else:
+                exchange = np.zeros((energies.size, n_channel, n_channel, y.size))
             rho_v = 0.96 * energies ** 2 * (field_g / 1.0e14) ** 2
             crossing = np.searchsorted(density, rho_v)
             log_rho = np.log(np.maximum(density, 1.0e-300))
@@ -900,44 +917,42 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
                 if d < 2 or d >= y.size - 1:
                     continue
                 if conversion == "none":
-                    thickness = 4.6            # P = 0,99, o mesmo teto do parcial
+                    # troca completa: P = 0,99 para todo angulo
+                    p_jump = np.full(mu.size, 0.01)
                 else:
                     dz = (y[d] - y[d - 1]) / max(float(density[d]), 1.0e-30)
                     scale = dz / max(float(log_rho[d] - log_rho[d - 1]), 1.0e-12)
-                    for im, cosine in enumerate(mu):
-                        tan_kb = np.sqrt(max(0.0, 1.0 - cosine ** 2)) / max(cosine, 0.02)
-                        ion = CYCLOTRON_E_PER_GAUSS * field_g * MASS_RATIO
-                        e_ad = 2.52 * (tan_kb * abs(1.0 - (ion / energies[ie]) ** 2)) \
-                            ** (2.0 / 3.0) * max(scale / cosine, 1.0e-6) ** (-1.0 / 3.0)
-                        p_jump = np.exp(-0.5 * np.pi
-                                        * min((energies[ie] / max(e_ad, 1.0e-12)), 10.0) ** 3)
-                        # Suleimanov, Potekhin & Werner (2009), Eq. (16), seguindo
-                        # van Adelsberg & Lai (2006): na ressonancia a intensidade
-                        # de um modo vira P_jump dela mesma mais (1 - P_jump) da
-                        # outra. Aqui isso e imposto como espessura de troca na
-                        # celula, t = -ln(1 - P), e o P e LIMITADO a 0,99: o valor
-                        # antigo (t <= 30, ou seja P = 1 - 1e-13) punha 30
-                        # profundidades opticas numa unica celula, um degrau que o
-                        # Feautrier nao atravessa. Com P = 0,99 a troca ja e
-                        # praticamente completa e t <= 4,6.
-                        t_cross = -np.log(max(1.0 - min(p_jump, 0.99), 1.0e-13))
-                        chi_ex = t_cross * cosine / max(float(y[d] - y[d - 1]), 1.0e-30)
-                        for mode in (0, 1):
-                            c = mode * mu.size + im
-                            partner = (1 - mode) * mu.size + im
-                            extinction[ie, c, d] += chi_ex
-                            exchange[ie, c, partner, d] = chi_ex
+                    ion = CYCLOTRON_E_PER_GAUSS * field_g * MASS_RATIO
+                    tan_kb = np.sqrt(np.maximum(0.0, 1.0 - mu ** 2)) \
+                        / np.maximum(mu, 0.02)
+                    e_ad = 2.52 * (tan_kb * abs(1.0 - (ion / energies[ie]) ** 2)) \
+                        ** (2.0 / 3.0) * np.maximum(scale / mu, 1.0e-6) ** (-1.0 / 3.0)
+                    p_jump = np.exp(-0.5 * np.pi * np.minimum(
+                        energies[ie] / np.maximum(e_ad, 1.0e-12), 10.0) ** 3)
+                # Suleimanov, Potekhin & Werner (2009), Eq. (16), seguindo van
+                # Adelsberg & Lai (2006): na ressonancia a intensidade de um modo
+                # vira P_jump dela mesma mais (1 - P_jump) da outra.
+                if direto:
+                    jump_index[ie] = d
+                    jump_probability[ie] = np.minimum(p_jump, 0.99)
                     continue
-                # conversion == 'none': troca forte para os dois modos, todo mu
+                # No Feautrier isso so cabe como espalhamento de troca de
+                # espessura t = -ln(1 - P) dentro da celula, com P limitado a
+                # 0,99 (t <= 4,6). E uma opacidade que a fisica nao tem, e ela
+                # esquenta as camadas externas: medido contra os perfis
+                # publicados de van Adelsberg & Lai (2006), fator 1,4 a 2,2 de
+                # aquecimento a mais do que a literatura. Ver formal="direto".
                 for im, cosine in enumerate(mu):
-                    chi_ex = 4.6 * cosine / max(float(y[d] - y[d - 1]), 1.0e-30)
+                    t_cross = -np.log(max(1.0 - min(float(p_jump[im]), 0.99), 1.0e-13))
+                    chi_ex = t_cross * cosine / max(float(y[d] - y[d - 1]), 1.0e-30)
                     for mode in (0, 1):
                         c = mode * mu.size + im
                         partner = (1 - mode) * mu.size + im
                         extinction[ie, c, d] += chi_ex
                         exchange[ie, c, partner, d] = chi_ex
-            # normaliza o acoplamento pela extinção total (unidades de S)
-            exchange = exchange / extinction[:, :, None, :]
+            if exchange is not None:
+                # normaliza o acoplamento pela extincao total (unidades de S)
+                exchange = exchange / extinction[:, :, None, :]
 
         planck = estrutura.planck_energy(grid, temperature[None, :])
         thermal = absorption / extinction * planck[:, None, :] / 2.0
@@ -960,10 +975,19 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
             surface = np.repeat(
                 (estrutura.planck_energy(energies, temperature[-1]) / 2.0)[:, None],
                 n_channel, axis=1)
-        field = transporte.polarized_feautrier(optical_depth, mu_channel,
-                                               weight_channel, thermal, into, out_of,
-                                               surface_intensity=surface,
-                                               exchange=exchange)
+        if formal == "direto":
+            field = transporte.polarized_direct(optical_depth, mu_channel,
+                                                weight_channel, thermal, into, out_of,
+                                                surface_intensity=surface,
+                                                jump_probability=jump_probability,
+                                                jump_index=jump_index,
+                                                guess=campo_anterior)
+            campo_anterior = field["u"]
+        else:
+            field = transporte.polarized_feautrier(optical_depth, mu_channel,
+                                                   weight_channel, thermal, into, out_of,
+                                                   surface_intensity=surface,
+                                                   exchange=exchange)
 
         mean_intensity = np.trapezoid(field["J"], energies, axis=0)
         flux_mid = np.trapezoid(field["H_mid"], energies, axis=0)

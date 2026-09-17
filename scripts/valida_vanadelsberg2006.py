@@ -90,7 +90,8 @@ def perfil_publicado(tau: np.ndarray, chave: str) -> np.ndarray:
     return np.where(tau > tau_mid, fundo + poli_a, fundo + poli_b)
 
 
-def roda_magnus(chave: str, iteracoes: int, mu_nodes: int) -> dict:
+def roda_magnus(chave: str, iteracoes: int, mu_nodes: int,
+                formal: str = "feautrier") -> dict:
     from atmosfera import magnetizada
     campo, t_eff, comp, *_ = TABELA1[chave]
     if comp != "H":
@@ -99,7 +100,7 @@ def roda_magnus(chave: str, iteracoes: int, mu_nodes: int) -> dict:
     sol = magnetizada.solve(log_t_eff=np.log10(t_eff), log_g=np.log10(G_VAL06),
                             field_g=campo, theta_b=0.0, vacuum=True,
                             conversion="partial", iterations=iteracoes,
-                            mu_nodes=mu_nodes)
+                            mu_nodes=mu_nodes, formal=formal)
     sol["segundos"] = time.time() - t0
     return sol
 
@@ -195,6 +196,8 @@ def main() -> None:
     p.add_argument("--todos", action="store_true", help="todos os modelos de hidrogenio")
     p.add_argument("--iteracoes", type=int, default=300)
     p.add_argument("--mu", type=int, default=6, help="nos de Gauss-Legendre em mu")
+    p.add_argument("--formal", choices=("feautrier", "direto"), default="feautrier",
+                   help="integrador do transporte")
     p.add_argument("--saida", default="exploracoes/validacao_val06")
     p.add_argument("--apenas-analise", action="store_true",
                    help="refaz diagnostico e figura a partir do resultado.json ja gravado")
@@ -222,8 +225,8 @@ def main() -> None:
         return
     resultados = []
     for chave in chaves:
-        print(f"[{chave}] rodando o MAGNUS ...", flush=True)
-        sol = roda_magnus(chave, args.iteracoes, args.mu)
+        print(f"[{chave}] rodando o MAGNUS ({args.formal}) ...", flush=True)
+        sol = roda_magnus(chave, args.iteracoes, args.mu, args.formal)
         r = compara(chave, sol)
         r["ressonancia"] = diagnostico_ressonancia(r)
         resultados.append(r)

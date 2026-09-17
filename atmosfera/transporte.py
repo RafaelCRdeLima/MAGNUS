@@ -710,3 +710,274 @@ def polarized_feautrier(tau: np.ndarray, mu_channel: np.ndarray,
         "H_surface": np.einsum("c,fc->f", weight_channel * mu_channel, u[:, :, 0]),
         "I_surface": 2.0 * u[:, :, 0],
     }
+
+
+def _pesos_caracteristica(delta: np.ndarray) -> tuple:
+    """Pesos da característica curta com fonte LINEAR na célula.
+
+    Integrando a equação de transporte ao longo do raio, com S linear entre os
+    dois nós e passo óptico d,
+
+        I_chegada = I_partida e^-d + S_chegada (e0 - e1/d) + S_partida (e1/d),
+        e0 = 1 - e^-d,   e1 = e0 - d e^-d.
+
+    Em d grande o peso local vai a 1 e em d pequeno os dois pesos viram d/2, o
+    trapézio. Os limites são escritos à mão porque e1/d é 0/0 numericamente
+    abaixo de 1e-4. Serve nas pontas da varredura, onde falta um vizinho para a
+    parábola.
+    """
+    d = np.maximum(delta, 0.0)
+    decaimento = np.exp(-d)
+    e0 = -np.expm1(-d)
+    e1 = e0 - d * decaimento
+    pequeno = d < 1.0e-4
+    seguro = np.where(pequeno, 1.0, d)
+    partida = np.where(pequeno, 0.5 * d, e1 / seguro)
+    chegada = np.where(pequeno, 0.5 * d, e0 - e1 / seguro)
+    return decaimento, partida, chegada
+
+
+def _pesos_parabolicos(passo_acima: np.ndarray, passo_abaixo: np.ndarray) -> tuple:
+    """Pesos da característica curta com fonte PARABÓLICA (Olson & Kunasz 1987).
+
+    A fonte é interpolada por uma parábola nos três nós que o raio encosta — o
+    de onde ele vem (`passo_acima` de distância óptica), o de chegada, e o
+    seguinte (`passo_abaixo`) —, e a integral fica
+
+        I_chegada = I_partida e^-D + psi_p S_partida + psi_c S_chegada
+                    + psi_s S_seguinte,
+        e0 = 1 - e^-D,   e1 = D - e0,   e2 = D^2 - 2 e1,
+        psi_p = e0 + [e2 - (d + 2D) e1] / [D (D + d)],
+        psi_c = [(D + d) e1 - e2] / (D d),
+        psi_s = (e2 - D e1) / [d (D + d)],
+
+    com D = passo_acima e d = passo_abaixo. NÃO é refinamento cosmético: em
+    célula opticamente espessa a versão linear só acerta o limite difusivo em
+    primeira ordem em 1/D, e a iteração de espalhamento amplifica esse erro.
+    Medido numa atmosfera semi-infinita de albedo 0,99 com 100 pontos em
+    profundidade, a linear erra 6,5 por cento em J e só converge para a resposta
+    certa com 800 pontos; a parabólica acerta na grade grossa. No limite D
+    grande ela devolve I = S - dS/ds, que é a difusão exata.
+
+    e1 e e2 saem de subtrações que se cancelam quando D é pequeno, então abaixo
+    de 1e-4 entram as séries, e os pesos viram o trapézio.
+    """
+    grande = np.maximum(passo_acima, 0.0)
+    pequena = np.maximum(passo_abaixo, 1.0e-300)
+    decaimento = np.exp(-grande)
+    e0 = -np.expm1(-grande)
+    curto = grande < 1.0e-4
+    e1 = np.where(curto, grande ** 2 / 2.0 - grande ** 3 / 6.0, grande - e0)
+    e2 = np.where(curto, grande ** 3 / 3.0 - grande ** 4 / 12.0,
+                  grande * grande - 2.0 * e1)
+    soma = grande + pequena
+    seguro_grande = np.where(curto, 1.0, grande)
+    psi_p = np.where(curto, 0.5 * grande,
+                     e0 + (e2 - (pequena + 2.0 * grande) * e1) / (seguro_grande * soma))
+    psi_c = np.where(curto, 0.5 * grande,
+                     (soma * e1 - e2) / (seguro_grande * pequena))
+    psi_s = np.where(curto, 0.0, (e2 - grande * e1) / (pequena * soma))
+    # LIMITADOR (Auer & Paletou 1994): a parabola so vale quando as duas celulas
+    # tem espessuras opticas comparaveis. Onde elas nao tem — e e o caso no pico
+    # de opacidade da ressonancia de vacuo, com uma celula de 3e10 profundidades
+    # opticas colada numa de 1e-8 — os pesos crescem como 1/d_abaixo e chegam a
+    # 1e8, o que estoura a recursao. A soma psi_p + psi_c + psi_s = e0 vale
+    # sempre, entao o teste e so de magnitude: acima de 1,5 volta para a
+    # caracteristica linear, que nunca tem peso negativo nem maior que 1.
+    exagero = ((np.abs(psi_p) > 1.5) | (np.abs(psi_c) > 1.5) | (np.abs(psi_s) > 1.5)
+               | ~np.isfinite(psi_p) | ~np.isfinite(psi_c) | ~np.isfinite(psi_s))
+    if np.any(exagero):
+        _, linear_p, linear_c = _pesos_caracteristica(passo_acima)
+        psi_p = np.where(exagero, linear_p, psi_p)
+        psi_c = np.where(exagero, linear_c, psi_c)
+        psi_s = np.where(exagero, 0.0, psi_s)
+    return decaimento, psi_p, psi_c, psi_s
+
+
+def polarized_direct(tau: np.ndarray, mu_channel: np.ndarray,
+                     weight_channel: np.ndarray, thermal: np.ndarray,
+                     into: np.ndarray, out_of: np.ndarray,
+                     surface_intensity: np.ndarray | None = None,
+                     jump_probability: np.ndarray | None = None,
+                     jump_index: np.ndarray | None = None,
+                     iterations: int = 400, tolerance: float = 1.0e-7,
+                     guess: np.ndarray | None = None, ng_every: int = 4) -> dict:
+    """Integração DIRETA raio a raio, com o salto de conversão imposto exato.
+
+    Alternativa ao `polarized_feautrier` com as mesmas entradas e as mesmas
+    saídas, pela razão que van Adelsberg & Lai (2006), §3.1.1, dão:
+
+        "since the resonance density depends on photon energy, the standard
+        Feautrier procedure for integrating the radiative transfer equation
+        cannot be used here, as there is no simple way to incorporate
+        eqs. (33)-(34) into the method of forward and backward substitution
+        employed by Feautrier. Instead, we use the standard Runga-Kutta method
+        to integrate the transfer eq. (6) in the upward and downward directions
+        ... The Runga-Kutta integration is stopped at the resonance, where
+        eqs. (33) and (34) are used to convert the mode intensities."
+
+    O Feautrier resolve em u = (I+ + I-)/2 por substituição para frente e para
+    trás, e só sabe representar uma função CONTÍNUA em profundidade. A conversão
+    de modos é uma descontinuidade: ao cruzar a ressonância,
+
+        I_1 -> P I_1 + (1 - P) I_2,   I_2 -> P I_2 + (1 - P) I_1.
+
+    Imposta dentro do Feautrier como espalhamento de troca, ela vira uma
+    opacidade falsa de até 4,6 profundidades ópticas numa única célula, que
+    engorda a extinção, dilui a emissão térmica daquela célula e esquenta as
+    camadas externas (medido contra os perfis publicados: fator 1,4 a 2,2 de
+    aquecimento a mais do que a literatura). Aqui a troca não gera opacidade
+    nenhuma: é uma redistribuição da intensidade entre os dois modos no ponto em
+    que o raio cruza a ressonância, que é o que ela fisicamente é.
+
+    O preço é que o espalhamento deixa de ser implícito. Isso é pago com
+    iteração lambda ACELERADA (Olson, Auer & Buchler 1986): o operador local
+    aproximado é a diagonal da característica curta, `lstar`, e a correção por
+    iteração resolve (I - Lambda* C) dx = residuo em cada profundidade, com C o
+    acoplamento de posto 3 entre canais. A taxa de convergência deixa de
+    depender da profundidade óptica, que é o ponto do método.
+
+    `jump_index` (n_E,) é o índice de profundidade em que a ressonância cai, com
+    valor negativo onde não há; `jump_probability` (n_E, n_mu) é o P de cada
+    ângulo. O salto acontece na interface entre `jump_index - 1` e `jump_index`,
+    nos dois sentidos de propagação.
+    """
+    n_freq, n_channel, n_depth = tau.shape
+    n_mu = n_channel // 2
+    passo = np.diff(tau, axis=2) / mu_channel[None, :, None]
+    # Parabolica no miolo, linear nas pontas (onde falta um vizinho).
+    dec_desce, pp_desce, pc_desce, ps_desce = _pesos_parabolicos(passo[:, :, :-1],
+                                                                 passo[:, :, 1:])
+    dec_sobe, pp_sobe, pc_sobe, ps_sobe = _pesos_parabolicos(passo[:, :, 1:],
+                                                             passo[:, :, :-1])
+    dec_lin, pp_lin, pc_lin = _pesos_caracteristica(passo)
+
+    tem_salto = jump_index is not None and jump_probability is not None
+    if tem_salto:
+        jump_index = np.asarray(jump_index, int)
+        jump_probability = np.asarray(jump_probability, float)
+        alvos = {int(k): np.nonzero(jump_index == k)[0]
+                 for k in np.unique(jump_index[jump_index > 0])}
+    else:
+        alvos = {}
+
+    # C[c, g] = soma_alpha into[alpha, c] out_of[alpha, g], o posto 3 do Ho & Lai
+    acoplamento = np.einsum("facd,fagd->fcgd", into, out_of)
+
+    def troca(plano: np.ndarray, k: int) -> None:
+        indices = alvos.get(k)
+        if indices is None or indices.size == 0:
+            return
+        bloco = plano[indices].reshape(-1, 2, n_mu)
+        p = jump_probability[indices]
+        misturado = np.empty_like(bloco)
+        misturado[:, 0] = p * bloco[:, 0] + (1.0 - p) * bloco[:, 1]
+        misturado[:, 1] = p * bloco[:, 1] + (1.0 - p) * bloco[:, 0]
+        plano[indices] = misturado.reshape(-1, n_channel)
+
+    def formal(fonte: np.ndarray) -> tuple:
+        desce = np.zeros((n_freq, n_channel, n_depth))
+        for k in range(1, n_depth):
+            if k < n_depth - 1:
+                # chega em k vindo de k-1, com k+1 fechando a parabola
+                j = k - 1
+                desce[:, :, k] = (desce[:, :, j] * dec_desce[:, :, j]
+                                  + fonte[:, :, j] * pp_desce[:, :, j]
+                                  + fonte[:, :, k] * pc_desce[:, :, j]
+                                  + fonte[:, :, k + 1] * ps_desce[:, :, j])
+            else:
+                j = k - 1
+                desce[:, :, k] = (desce[:, :, j] * dec_lin[:, :, j]
+                                  + fonte[:, :, j] * pp_lin[:, :, j]
+                                  + fonte[:, :, k] * pc_lin[:, :, j])
+            if tem_salto:
+                troca(desce[:, :, k], k)
+        sobe = np.zeros((n_freq, n_channel, n_depth))
+        if surface_intensity is not None:
+            # Atmosfera fina: I+(fundo) vem da superficie emissora.
+            sobe[:, :, -1] = surface_intensity
+        else:
+            # Semi-infinita: difusao, I+ = S + mu dS/dtau.
+            # I+ = S + mu dS/dtau, com o termo de gradiente preso a |S|: onde a
+            # ultima celula e opticamente fina a difusao nao vale, e o gradiente
+            # cru manda a intensidade para qualquer lugar.
+            gradiente = (fonte[:, :, -1] - fonte[:, :, -2]) \
+                / np.maximum(passo[:, :, -1], 1.0e-300)
+            sobe[:, :, -1] = fonte[:, :, -1] + np.clip(gradiente, -fonte[:, :, -1],
+                                                       fonte[:, :, -1])
+        for k in range(n_depth - 2, -1, -1):
+            if k > 0:
+                # chega em k vindo de k+1, com k-1 fechando a parabola
+                sobe[:, :, k] = (sobe[:, :, k + 1] * dec_sobe[:, :, k - 1]
+                                 + fonte[:, :, k + 1] * pp_sobe[:, :, k - 1]
+                                 + fonte[:, :, k] * pc_sobe[:, :, k - 1]
+                                 + fonte[:, :, k - 1] * ps_sobe[:, :, k - 1])
+            else:
+                sobe[:, :, 0] = (sobe[:, :, 1] * dec_lin[:, :, 0]
+                                 + fonte[:, :, 1] * pp_lin[:, :, 0]
+                                 + fonte[:, :, 0] * pc_lin[:, :, 0])
+            if tem_salto:
+                troca(sobe[:, :, k], k + 1)
+        return sobe, desce
+
+    # Operador local aproximado: o peso da fonte NA PROPRIA celula, somado sobre
+    # os dois sentidos e dividido por dois porque u e a media deles.
+    lstar = np.zeros((n_freq, n_channel, n_depth))
+    lstar[:, :, 1:-1] += 0.5 * pc_desce
+    lstar[:, :, -1] += 0.5 * pc_lin[:, :, -1]
+    lstar[:, :, 1:-1] += 0.5 * pc_sobe
+    lstar[:, :, 0] += 0.5 * pc_lin[:, :, 0]
+    if surface_intensity is None:
+        lstar[:, :, -1] += 0.5          # o contorno difusivo e local no fundo
+    lstar = np.clip(lstar, 0.0, 0.999)
+
+    identidade = np.eye(n_channel)
+    precondicionador = (identidade[None, None]
+                        - lstar.transpose(0, 2, 1)[..., None]
+                        * acoplamento.transpose(0, 3, 1, 2))
+
+    u = thermal.copy() if guess is None else np.array(guess, float)
+    residuo = np.inf
+    # O ALI diagonal sozinho AINDA e uma serie geometrica, de razao ~1-sqrt(eps):
+    # medido, com albedo 0,999 ele estaciona 30% abaixo da resposta depois de 600
+    # passos. A aceleracao de Ng soma a serie de uma vez, e e o que a literatura
+    # de transporte usa junto com o ALI desde Olson, Auer & Buchler (1986).
+    entradas: list[np.ndarray] = []
+    saidas: list[np.ndarray] = []
+    for passo_interno in range(iterations):
+        fonte = thermal + np.einsum("fcgd,fgd->fcd", acoplamento, u)
+        sobe, desce = formal(fonte)
+        diferenca = 0.5 * (sobe + desce) - u
+        correcao = np.linalg.solve(
+            precondicionador, diferenca.transpose(0, 2, 1)[..., None])[..., 0]
+        seguinte = np.maximum(u + correcao.transpose(0, 2, 1), 0.0)
+        escala = max(float(np.max(np.abs(seguinte))), 1.0e-300)
+        residuo = float(np.max(np.abs(seguinte - u))) / escala
+        if ng_every:
+            entradas.append(u.ravel().copy())
+            saidas.append(seguinte.ravel().copy())
+            if len(entradas) > 4:
+                entradas.pop(0)
+                saidas.pop(0)
+            if len(entradas) >= 3 and (passo_interno + 1) % ng_every == 0:
+                seguinte = np.maximum(
+                    _anderson_step(entradas, saidas).reshape(u.shape), 0.0)
+                entradas.clear()
+                saidas.clear()
+        u = seguinte
+        if residuo < tolerance:
+            break
+
+    fonte = thermal + np.einsum("fcgd,fgd->fcd", acoplamento, u)
+    sobe, desce = formal(fonte)
+    u = 0.5 * (sobe + desce)
+    fluxo = 0.5 * np.einsum("c,fcd->fd", weight_channel * mu_channel, sobe - desce)
+    return {
+        "u": u,
+        "J": np.einsum("c,fcd->fd", weight_channel, u),
+        "H_mid": 0.5 * (fluxo[:, 1:] + fluxo[:, :-1]),
+        "H_surface": fluxo[:, 0],
+        "I_surface": sobe[:, :, 0],
+        "inner_iterations": passo_interno + 1,
+        "inner_residual": residuo,
+    }

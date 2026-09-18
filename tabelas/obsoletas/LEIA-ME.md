@@ -31,6 +31,7 @@ opacidade.
 
 ## O que mudou, em uma linha
 
-A fração pulsada prevista na MESMA geometria cai de 17,4 para 5,9 por cento com
-a correção; reajustando, ela volta a 16,4 por cento em outra geometria, com
-redshift de 0,63 no lugar de 0,32. Ver `docs/pulso_reajuste.md`.
+O livre-livre corrigido torna o modo X bem menos transparente, o que muda o feixe
+emergente e, com ele, a modulação prevista. Qualquer comparação entre estas
+tabelas e as atuais tem de ser feita com o ajuste LIVRE: congelar a geometria no
+melhor ajuste de uma delas mede a outra fora da casa dela.

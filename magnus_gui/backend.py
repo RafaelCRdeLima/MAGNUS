@@ -17,7 +17,7 @@ KT_KEV_PER_MK = 0.08617333262145
 
 
 def default_table() -> str:
-    for cand in ("tabelas/magnus_campoB.magnus", "build/campo_B13_5.magnus"):
+    for cand in ("tabelas/magnus_campoBg_denso_v2.magnus", "build/campo_B13_5.magnus"):
         p = ROOT / cand
         if p.is_file():
             return str(p)

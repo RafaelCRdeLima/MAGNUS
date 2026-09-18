@@ -9,9 +9,9 @@ authors:
   - family-names: "de Lima"
     given-names: "Rafael C. R."
     affiliation: "Universidade do Estado de Santa Catarina (UDESC); ICRANet, Università degli Studi di Ferrara"
-version: 0.1.0
-date-released: 2026-09-14
-doi: 10.5281/zenodo.22760148
+version: 0.2.0
+date-released: 2026-09-18
+doi: 10.5281/zenodo.22760147
 identifiers:
   - type: doi
     value: 10.5281/zenodo.22760147

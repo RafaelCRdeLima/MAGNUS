@@ -49,7 +49,17 @@ def main() -> None:
                 color="#bc4749", label="dados", zorder=5)
     a2.plot(ec, sp_e, color="#1f4e79", lw=2, label="modelo")
     a2.set_xlabel("energia (keV)"); a2.set_ylabel("contagens (soma em fase)")
-    a2.set_title("Espectro — modelo excede os dados acima de ~0,8 keV")
+    # O titulo era fixo ("modelo excede os dados acima de ~0,8 keV"), escrito para
+    # um ajuste de setembro/2026 em que era verdade. Com a tabela corrigida o sinal
+    # inverteu, entao o rotulo passa a ser MEDIDO no proprio espectro.
+    alta = ec > 0.9 * ec.max()
+    if np.sum(alta) and np.sum(sp_o[alta]) > 0:
+        razao = float(np.sum(sp_e[alta]) / np.sum(sp_o[alta]))
+        lado = "excede" if razao > 1.1 else ("fica abaixo d" if razao < 0.9 else "acompanha")
+        a2.set_title(f"Espectro — acima de {0.9*ec.max():.1f} keV o modelo "
+                     f"{lado}os dados (razão {razao:.2f})", fontsize=10)
+    else:
+        a2.set_title("Espectro — modelo vs dados")
     a2.set_yscale("log"); a2.legend(); a2.grid(alpha=.2)
 
     fig.tight_layout(); fig.savefig(out, dpi=120)

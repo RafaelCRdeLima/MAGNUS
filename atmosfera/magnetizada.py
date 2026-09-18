@@ -292,6 +292,79 @@ def mode_amplitudes(energy_kev: np.ndarray, theta_b: float, density: float,
     return amplitudes
 
 
+def _incremento_na_ressonancia(energies, y, density, temperature, field_g,
+                               mu, vacuum_angles, n_channel, ordering,
+                               crossing, rho_v, pontos_finos=65,
+                               pontos_grossos=17, meia_janela=0.06):
+    """Espessura óptica INTEGRADA dentro da célula que contém a ressonância.
+
+    O pico de opacidade do modo X na ressonância de vácuo é 20 a 40 vezes mais
+    estreito que uma célula da grade de profundidade (medido em 6,3e13 G:
+    largura 0,005 a 0,010 em ln rho contra célula de 0,213, com contraste de
+    1e4). A regra do trapézio entre os dois nós da célula não vê o pico: medido,
+    ela perde de 15 a 700 vezes a espessura óptica do modo X, conforme a
+    energia, e o modo sai transparente demais. É o efeito que Lai & Ho (2002)
+    chamam de "narrow spiky opacity" e cuja resolução eles dizem ser essencial.
+
+    A receita da literatura (Ho & Lai 2003; Suleimanov, Potekhin & Werner 2009)
+    é a grade de energia casada MAIS a opacidade mediada no intervalo. Aqui a
+    média é feita em PROFUNDIDADE, que é equivalente e não mexe na grade de
+    energia: para cada energia, a célula que contém rho_V é reamostrada com uma
+    sub-grade densa em torno da ressonância, e o incremento de tau vira a
+    integral exata int chi dy sobre a célula.
+
+    Devolve (incremento, celula), com incremento de forma (nE, n_channel) e
+    celula (nE,) dizendo em que índice de `increments` ele entra, ou -1 onde a
+    ressonância não cai dentro da atmosfera.
+    """
+    n_e = energies.size
+    celula = np.full(n_e, -1, dtype=int)
+    incremento = np.zeros((n_e, n_channel))
+    dentro = (crossing >= 2) & (crossing < y.size)
+    if not np.any(dentro):
+        return incremento, celula
+    indice = np.where(dentro, crossing, 2)
+    celula = np.where(dentro, indice - 1, -1)
+
+    ln_y = np.log(np.maximum(y, 1.0e-300))
+    ln_rho = np.log(np.maximum(density, 1.0e-300))
+    ln_t = np.log(np.maximum(temperature, 1.0e-300))
+    a, b = indice - 1, indice
+    u0, u1 = ln_y[a], ln_y[b]                         # (nE,)
+    r0, r1 = ln_rho[a], ln_rho[b]
+    t0, t1 = ln_t[a], ln_t[b]
+    largura = np.where(np.abs(u1 - u0) > 0.0, u1 - u0, 1.0)
+    inclina_rho = (r1 - r0) / largura
+    inclina_t = (t1 - t0) / largura
+
+    # sub-grade: uma parte uniforme na célula e outra concentrada na ressonância
+    grossa = u0[:, None] + (u1 - u0)[:, None] * np.linspace(0.0, 1.0, pontos_grossos)
+    alvo = np.log(np.maximum(rho_v, 1.0e-300))[:, None] \
+        + np.linspace(-meia_janela, meia_janela, pontos_finos)
+    seguro = np.where(np.abs(inclina_rho) > 1.0e-12, inclina_rho, 1.0)[:, None]
+    fina = u0[:, None] + (alvo - r0[:, None]) / seguro
+    fina = np.clip(fina, np.minimum(u0, u1)[:, None], np.maximum(u0, u1)[:, None])
+    malha = np.sort(np.concatenate([grossa, fina], axis=1), axis=1)     # (nE, n_sub)
+
+    y_sub = np.exp(malha)
+    rho_sub = np.exp(r0[:, None] + inclina_rho[:, None] * (malha - u0[:, None]))
+    t_sub = np.exp(t0[:, None] + inclina_t[:, None] * (malha - u0[:, None]))
+
+    grade = energies[:, None]
+    ciclico = (cyclic_free_free(grade, rho_sub, t_sub, field_g)
+               + cyclic_scattering(grade, field_g, rho_sub, t_sub))     # (nE,n_sub,3)
+    amplitudes = np.empty((n_e, n_channel, 3, malha.shape[1]))
+    for im in range(mu.size):
+        bloco = vacuum_amplitudes_averaged(energies, vacuum_angles[im], rho_sub,
+                                           field_g, ordering=ordering)
+        amplitudes[:, im] = bloco[:, :, 0].transpose(0, 2, 1)
+        amplitudes[:, mu.size + im] = bloco[:, :, 1].transpose(0, 2, 1)
+    extincao = np.einsum("ecad,eda->ecd", amplitudes, ciclico)          # (nE,nC,n_sub)
+    incremento = np.trapezoid(extincao, y_sub[:, None, :], axis=2)
+    incremento = np.where(dentro[:, None], incremento, 0.0)
+    return incremento, celula
+
+
 def vacuum_amplitudes_averaged(energy_kev: np.ndarray, angles: np.ndarray,
                                density: np.ndarray, field_g: float,
                                ordering: str = "n2",
@@ -306,7 +379,11 @@ def vacuum_amplitudes_averaged(energy_kev: np.ndarray, angles: np.ndarray,
     angles = np.atleast_1d(np.asarray(angles, dtype=float))
     density = np.atleast_1d(np.asarray(density, dtype=float))
     energy = np.atleast_1d(np.asarray(energy_kev, dtype=float))
-    plus, minus, along = dielectric_cyclic(energy[:, None], density[None, :],
+    # `density` com duas dimensoes e uma densidade POR ENERGIA (nE, nD): e o que a
+    # integracao dentro da celula da ressonancia precisa, porque cada energia tem
+    # a sua rho_V e portanto a sua sub-grade.
+    campo_rho = density[None, :] if density.ndim == 1 else density
+    plus, minus, along = dielectric_cyclic(energy[:, None], campo_rho,
                                            field_g)                    # (nE,nD)
     delta = vacuum_delta(field_g)
     plus, minus, along = plus - 2.0 * delta, minus - 2.0 * delta, along + 5.0 * delta
@@ -751,7 +828,8 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
           atomic: bool = False, ng_every: int = 5,
           ordering: str = "elipticidade", smooth_correction: bool = False,
           thermalize_evanescent: bool = False,
-          matched_grid: bool = False, formal: str = "feautrier") -> dict:
+          matched_grid: bool = False, formal: str = "feautrier",
+          resonance_averaged: bool = True) -> dict:
     """Atmosfera magnetizada, campo ao longo da normal: o caso dos `ThB00`.
 
     A mesma máquina do estágio 1 — hidrostática P = g·y, Unsöld–Lucy com
@@ -768,6 +846,11 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
     degenerados (v = 9e-9 contra birrefringencia do vacuo de 4e-5) e a ordenacao
     por modulo poe o modo OPACO no canal do transparente em tres de cinco
     profundidades. Ver docs/vacuo_convergencia_literatura.md.
+
+    `resonance_averaged` integra a espessura optica DENTRO da celula que contem
+    a ressonancia de vacuo, em vez de usar o trapezio entre os nos. Sem isso o
+    pico estreito de opacidade do modo X e invisivel para a grade e o vacuo quase
+    nao mexe no espectro. Ver `_incremento_na_ressonancia`.
 
     `formal` escolhe o integrador do transporte. "feautrier" é o padrão
     histórico, implícito no espalhamento. "direto" é a característica curta
@@ -948,6 +1031,19 @@ def solve(log_t_eff: float, log_g: float, field_g: float, theta_b: float = 0.0,
         # condicionamento sem tocar em nada observável.
         increments = np.maximum(0.5 * (extinction[:, :, 1:] + extinction[:, :, :-1])
                                 * np.diff(y), 1.0e-8)
+        if vacuum and resonance_averaged:
+            # O trapezio entre os dois nos da celula NAO ve o pico da ressonancia,
+            # que e 20 a 40 vezes mais estreito que a celula. Nessa celula o
+            # incremento passa a ser a integral exata. Ver
+            # `_incremento_na_ressonancia`.
+            rho_v_cel = 0.96 * energies ** 2 * (field_g / 1.0e14) ** 2
+            fino, celula = _incremento_na_ressonancia(
+                energies, y, density, temperature, field_g, mu, vacuum_angles,
+                n_channel, ordering, np.searchsorted(density, rho_v_cel), rho_v_cel)
+            linhas = np.where(celula >= 0)[0]
+            if linhas.size:
+                increments[linhas[:, None], np.arange(n_channel)[None, :],
+                           celula[linhas][:, None]] = np.maximum(fino[linhas], 1.0e-8)
         optical_depth = np.concatenate(
             [np.zeros((energies.size, n_channel, 1)),
              np.cumsum(increments, axis=2)], axis=2)

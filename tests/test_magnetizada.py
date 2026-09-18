@@ -246,3 +246,66 @@ class TestAtmosferaFina(unittest.TestCase):
         ratio = (thick["flux_energy"] / infinite["flux_energy"])[band]
         self.assertLess(float(np.max(np.abs(ratio - 1.0))), 3.0e-2,
                         f"razão {ratio.min():.4f} a {ratio.max():.4f}")
+
+
+class TestRamoDoVacuo(unittest.TestCase):
+    """O que o vácuo tem de entregar: fluxo certo e o pico estreito no modo X.
+
+    Os dois portões são da literatura e não de nenhum número nosso. O primeiro é
+    o de sempre, sigma T_ef^4. O segundo é a "narrow spiky opacity" da
+    ressonância de vácuo (Lai & Ho 2002; van Adelsberg & Lai 2006, Fig. 1): o
+    modo X, que é transparente, fica momentaneamente TÃO opaco quanto o O ao
+    cruzar a ressonância, porque ali as duas polarizações coincidem.
+    """
+
+    def test_o_ramo_do_vacuo_conserva_o_fluxo(self) -> None:
+        """Com vácuo, nos dois integradores, ainda tem de sair sigma T_ef^4."""
+        from atmosfera import estrutura
+        energies = estrutura.energy_grid(1.0e-3, 60.0, 110)
+        columns = estrutura.column_grid(1.0e-6, 1.0e5, 71)
+        expected = estrutura.STEFAN * (10.0 ** 6.0) ** 4
+        for formal in ("feautrier", "direto"):
+            with self.subTest(formal=formal):
+                solution = mg.solve(6.0, 14.2, 6.3e13, iterations=150, mu_nodes=4,
+                                    energies=energies, columns=columns,
+                                    vacuum=True, conversion="partial", formal=formal)
+                total = float(np.trapezoid(solution["flux_energy"],
+                                           solution["energies"]))
+                self.assertLess(abs(total / expected - 1.0), 3.0e-2,
+                                f"int F dE / sigma T^4 = {total / expected:.4f}")
+
+    def test_a_ressonancia_tem_pico_estreito_no_modo_X(self) -> None:
+        """O pico existe, cai em rho_V = 0,96 E^2 B_14^2 e é estreito.
+
+        É o portão que a rotulagem por |n^2| NÃO passa: com ela o modo X não tem
+        pico nenhum, só um degrau de fator 2 espalhado por 1,2 em ln rho (medido
+        17/09/2026), porque os canais seguem o ramo adiabático e trocam de
+        caráter em vez de voltar. Com a elipticidade o contraste é de 1e4 e a
+        largura, 0,01 em ln rho.
+        """
+        campo = 6.3e13
+        for energia in (0.25, 0.60):
+            with self.subTest(energia=energia):
+                E = np.array([energia])
+                rho_v = 0.96 * energia ** 2 * (campo / 1.0e14) ** 2
+                rho = rho_v * np.exp(np.linspace(-1.0, 1.0, 401))
+                temperatura = np.full((1, rho.size), 6.0e5)
+                ciclico = (mg.cyclic_free_free(E[:, None], rho[None, :],
+                                               temperatura, campo)
+                           + mg.cyclic_scattering(E[:, None], campo, rho[None, :],
+                                                  temperatura))
+                amplitudes = mg.vacuum_amplitudes_averaged(
+                    E, np.array([0.5]), rho, campo, ordering="elipticidade")
+                kappa = np.einsum("edma,eda->edm", amplitudes, ciclico)[0][:, 0] / rho
+                fundo = 0.5 * (kappa[0] + kappa[-1])
+                pico = float(kappa.max())
+                topo = int(np.argmax(kappa))
+                self.assertGreater(pico / fundo, 100.0,
+                                   f"contraste do pico {pico / fundo:.1f}")
+                # posição: dentro de 20% em densidade da previsão analítica
+                self.assertLess(abs(np.log(rho[topo] / rho_v)), 0.2,
+                                f"pico em {rho[topo]:.4f}, previsto {rho_v:.4f}")
+                # largura: estreito de verdade, menos de 0,1 em ln rho
+                meia = kappa > 0.5 * (pico + fundo)
+                largura = float(np.log(rho[meia].max() / rho[meia].min()))
+                self.assertLess(largura, 0.1, f"largura {largura:.3f} em ln rho")

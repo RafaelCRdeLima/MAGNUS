@@ -309,3 +309,52 @@ class TestRamoDoVacuo(unittest.TestCase):
                 meia = kappa > 0.5 * (pico + fundo)
                 largura = float(np.log(rho[meia].max() / rho[meia].min()))
                 self.assertLess(largura, 0.1, f"largura {largura:.3f} em ln rho")
+
+
+class TestAppletonHartree(unittest.TestCase):
+    """O autossolver de modos contra a magnetoiônica clássica.
+
+    Portão externo e antigo: num plasma frio de elétrons sem vácuo, a
+    elipticidade dos modos normais tem forma fechada (Appleton-Hartree),
+
+        K = beta +- sqrt(beta^2 + 1),   beta = Y_T^2 / [2 Y_L (1 - X)],
+
+    com X = (omega_p/omega)^2, Y_L = (omega_c/omega) cos theta e
+    Y_T = (omega_c/omega) sin theta. Não é número nosso: está em qualquer livro
+    de propagação em plasma magnetizado desde os anos 1930.
+
+    Este portão foi escrito em 18/09/2026 para decidir uma dúvida concreta: uma
+    transcrição da forma fechada de van Adelsberg & Lai (2006) discordava do
+    autossolver por fatores de 12 a 3e4, e era preciso saber qual dos dois
+    estava errado antes de gastar 25 horas de cluster. O autossolver reproduz
+    Appleton-Hartree nas cinco casas; a transcrição é que estava errada.
+    """
+
+    def test_elipticidade_reproduz_a_magnetoionica(self) -> None:
+        raiz = 1.0 / np.sqrt(2.0)
+        para_ciclica = np.array([[raiz, 1j * raiz, 0.0],
+                                 [raiz, -1j * raiz, 0.0],
+                                 [0.0, 0.0, 1.0]])
+        for x, y, theta in ((0.3, 0.5, 0.7), (0.05, 2.0, 1.1), (0.01, 0.3, 0.9)):
+            with self.subTest(X=x, Y=y, theta=theta):
+                seno, cosseno = np.sin(theta), np.cos(theta)
+                beta = (y * seno) ** 2 / (2.0 * y * cosseno * (1.0 - x))
+                previsto = sorted([abs(beta - np.sqrt(beta ** 2 + 1.0)),
+                                   abs(beta + np.sqrt(beta ** 2 + 1.0))])
+                # tensor cíclico do mesmo plasma
+                diagonal = np.array([1.0 - x / (1.0 - y), 1.0 - x / (1.0 + y), 1.0 - x])
+                cruz = np.array([[0.0, -cosseno, 0.0],
+                                 [cosseno, 0.0, -seno],
+                                 [0.0, seno, 0.0]])
+                propagacao = -cruz @ np.eye(3) @ cruz
+                ciclica = para_ciclica @ propagacao.astype(complex) @ para_ciclica.conj().T
+                valores, vetores = np.linalg.eig(ciclica / diagonal[:, None])
+                obtido = []
+                for j in np.argsort(-np.abs(valores))[:2]:
+                    e = vetores[:, j]
+                    e_x = (e[0] + e[1]) * raiz
+                    e_y = -1j * (e[0] - e[1]) * raiz
+                    obtido.append(abs(-1j * (cosseno * e_x - seno * e[2]) / e_y))
+                obtido = sorted(obtido)
+                for a, b in zip(previsto, obtido):
+                    self.assertAlmostEqual(a, b, places=5)

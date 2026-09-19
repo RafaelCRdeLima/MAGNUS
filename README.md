@@ -166,8 +166,8 @@ archived release on Zenodo, using the metadata in [CITATION.cff](CITATION.cff)
 (GitHub's "Cite this repository" button formats it for you):
 
 > de Lima, R. C. R. (2026). MAGNUS: forward model and Bayesian inference for
-> the thermal X-ray emission of magnetized neutron stars (v0.1.0). Zenodo.
-> https://doi.org/10.5281/zenodo.22760148
+> the thermal X-ray emission of magnetized neutron stars (v0.2.0). Zenodo.
+> https://doi.org/10.5281/zenodo.22844147
 
 The concept DOI [10.5281/zenodo.22760147](https://doi.org/10.5281/zenodo.22760147)
 always resolves to the latest archived version. Please also cite the

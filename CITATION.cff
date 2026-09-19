@@ -17,6 +17,9 @@ identifiers:
     value: 10.5281/zenodo.22760147
     description: "Concept DOI of the Zenodo archive; resolves to the latest version"
   - type: doi
+    value: 10.5281/zenodo.22844147
+    description: "DOI of version 0.2.0"
+  - type: doi
     value: 10.5281/zenodo.22760148
     description: "DOI of version 0.1.0"
 license: GPL-3.0

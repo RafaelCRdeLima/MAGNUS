@@ -1215,7 +1215,33 @@ struct AtmosphereTable {
         NsmaxgTable::bracket(log_g, log_g_value, ig, wg);
         NsmaxgTable::bracket(theta_b_deg, theta_b, ib, wb);
         NsmaxgTable::bracket(mu, cos_emission, im, wm);
-        NsmaxgTable::bracket(log_e, std::log10(std::max(1.0e-12, energy_kev)), ie, we);
+        (void)ie; (void)we;   // substituidos pelos indices por no de campo, abaixo
+        // ENERGIA REESCALADA PELO CICLOTRON, por nó de campo.
+        //
+        // A feição do próton fica em E_c = 0,63 (B/1e14) keV, ou seja ANDA com o
+        // campo. Entre dois nós separados por 0,05 dex em lg B ela se desloca 12%,
+        // mais que a própria largura, e interpolar os dois nós na MESMA energia
+        // soma duas linhas em lugares diferentes: o resultado é uma linha rasa e
+        // larga, não uma linha deslocada. Medido em 18/09/2026 contra o modelo
+        // calculado no ponto médio: erro mediano de 66% na vizinhança da linha, com
+        // pico de 125%, exatamente em cima dela (0,98 vezes E_c).
+        //
+        // A cura é ler cada nó de campo na energia EQUIVALENTE do cíclotron dele,
+        // E_no = E * 10^(lgB_no - lgB_alvo), de modo que a linha ocupe o mesmo
+        // ponto reduzido x = E/E_c nos dois. Medido: o erro na linha cai para 20%
+        // e o do contínuo melhora um pouco (1,4% -> 1,0% na banda).
+        //
+        // O resto do erro é amostragem do próprio eixo de energia da tabela (160
+        // nós em log, 7% de passo, comparável à largura da feição) e só se resolve
+        // adensando o eixo na construção.
+        const double lg_e_alvo = std::log10(std::max(1.0e-12, energy_kev));
+        std::size_t ie_no[2];
+        double we_no[2];
+        for (int df = 0; df < 2; ++df) {
+            const std::size_t n = std::min(ifld + df, log_b.size() - 1);
+            const double desloc = static_cast<double>(log_b[n]) - log_b_value;
+            NsmaxgTable::bracket(log_e, lg_e_alvo + desloc, ie_no[df], we_no[df]);
+        }
         const std::size_t nt = log_t.size(), ng = log_g.size(),
                           nb = theta_b_deg.size(), nm = mu.size(), ne = log_e.size();
         auto at = [&](std::size_t f, std::size_t t, std::size_t g, std::size_t b,
@@ -1239,11 +1265,14 @@ struct AtmosphereTable {
                         for (int dm = 0; dm < 2; ++dm) {
                             const double fm = fb * (dm ? wm : 1.0 - wm);
                             if (fm == 0.0) continue;
+                            // o indice e o peso de ENERGIA sao os do no de campo
+                            // `df`, nao os do alvo: e isso que alinha a linha.
                             for (int de = 0; de < 2; ++de) {
-                                const double weight = fm * (de ? we : 1.0 - we);
+                                const double weight =
+                                    fm * (de ? we_no[df] : 1.0 - we_no[df]);
                                 if (weight != 0.0) {
                                     total += weight * at(ifld + df, it + dt, ig + dg,
-                                                         ib + db, im + dm, ie + de);
+                                                         ib + db, im + dm, ie_no[df] + de);
                                 }
                             }
                         }

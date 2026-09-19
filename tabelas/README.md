@@ -47,3 +47,43 @@ anteriores (campoBg, denso, denso_ext, denso_ffq, denso_atom) ficam como registr
   o eixo de B e ligado-livre atômico de primeira passada), para medir o efeito dos átomos.
 - As versões intermediárias de 15/09 (livre-livre corrigido, 180 iterações, sem Ng) não são
   distribuídas; foram superadas pelas v2.
+
+## Tabela v3 (18/09/2026): a v2 com os eixos estendidos, ainda SEM vácuo
+
+`magnus_campoBg_denso_v3.magnus` é a **v2 estendida**, não uma física nova. Foi
+montada por `exploracoes/estende_v2.sh`, que gera as fatias que faltavam com
+`scripts/tabela_campo_g_denso.py` **sem `--vacuo`** e as une à v2 com
+`scripts/mesclar_tabelas.py`. As células em comum com a v2 são byte a byte
+idênticas; qualquer um pode conferir comparando as duas nos nós compartilhados.
+
+Eixos: 17 lg B (13,20–14,00 a 0,05 dex) × 9 lg T (5,500–6,301) × 5 lg g
+(14,0–14,8 a 0,2) × 3 θ_B × 8 μ × 160 E, ou seja **2295 modelos**.
+
+Os três eixos foram estendidos porque o ajuste encostava nos limites da v2: o
+campo parava em 13,871 contra o teto de 13,90; a gravidade pedia lg g = 14,59
+contra o teto de 14,4; e o equador, em 0,3 T_polo = 0,45 MK, caía abaixo do piso
+de 0,5 MK, com 11 por cento da área extrapolada.
+
+**O que ela NÃO tem:** polarização do vácuo. Herda isso da v2. Em consequência a
+rotulagem de modos por elipticidade, que só age quando as amplitudes do vácuo são
+recalculadas por profundidade, fica sem efeito nela. A interpolação em energia
+reescalada pelo ciclotron é do MOTOR (`engine/main.cpp`), não da tabela, e vale
+para qualquer uma.
+
+Chamar a v3 de "tabela corrigida" sem qualificar induz ao erro: ela corrige o
+livre-livre, não o vácuo.
+
+## Grades com vácuo (em produção desde 19/09/2026)
+
+As primeiras tabelas COM polarização do vácuo, rotulagem por elipticidade e
+integrador direto. Dois blocos que se mesclam no fim, 17 lg B × 9 lg T × 9 lg g
+× 3 θ_B = **4131 modelos**, com passo 0,1 em lg g (o dobro da resolução da v3,
+porque o ajuste cai entre dois nós de 0,2):
+
+| Bloco | lg g | Modelos |
+|---|---|---|
+| A | 14,0 14,2 14,4 14,6 14,8 | 2295 |
+| B | 14,1 14,3 14,5 14,7 | 1836 |
+
+Custo medido: 0,43 GB de pico e ~5,3 h por modelo num núcleo do Epyc do sci-com,
+contra 1,6 h no desktop. Ver `cluster/scicom/job_grade.slurm`.

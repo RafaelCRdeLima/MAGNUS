@@ -73,7 +73,38 @@ para qualquer uma.
 Chamar a v3 de "tabela corrigida" sem qualificar induz ao erro: ela corrige o
 livre-livre, não o vácuo.
 
-## Grades com vácuo (em produção desde 19/09/2026)
+## Tabela v4, COM vácuo (pronta em 22/09/2026)
+
+`magnus_campoBg_vacuo_v4.magnus`, a primeira com polarização do vácuo, rotulagem
+de modos por elipticidade e integrador direto. **17 lg B × 9 lg T × 9 lg g × 3 θ_B
+× 8 μ × 160 E = 4131 modelos**, 21,2 MB, montada dos dois blocos com
+`scripts/mesclar_tabelas.py`. O passo em lg g é 0,1, o dobro da resolução da v3.
+
+Qualidade, do erro de conservação de fluxo por modelo: mediana 1,0 %, p90 3,1 %,
+1,7 % dos modelos acima de 10 % e 5 acima de 30 %. A cauda ruim está toda no canto
+quente e de campo alto (lg B ≥ 13,9 com lg T ≥ 6,20, quase sempre em lg g 14,1 e
+θ_B oblíquo), fora da região que o ajuste da RBS 1223 usa.
+
+15,8 % das células saem grampeadas em |lg w| = 30, **todas acima de 3 keV**, onde a
+razão contra o Planck estoura na cauda de Wien; a v3 grampeia os mesmos 15,85 %.
+Dentro de 0,15–1,0 keV são 0,03 %.
+
+### Quanto o vácuo muda, medido contra a v3
+
+Em lg g 14,4, lg T 5,9–6,1, na banda 0,15–1,0 keV:
+
+| lg B | mediana | p90 | fração > 12 % |
+|---|---|---|---|
+| 13,30 | 0,2 % | 2,4 % | 0,8 % |
+| 13,55 | 0,5 % | 9,7 % | 7,9 % |
+| 13,85 | **5,0 %** | **70 %** | **30 %** |
+| 14,00 | 7,3 % | 126 % | 37,5 % |
+
+O campo polar ajustado da RBS 1223 é lg B ≈ 13,85, então **o vácuo não é desprezível
+para esta fonte**. A estimativa pela Eq. 5 de van Adelsberg & Lai (2006), que sugeria
+efeito pequeno abaixo de B_l, subestima; o que vale é esta medida direta.
+
+## Grades com vácuo (produzidas em 19–22/09/2026)
 
 As primeiras tabelas COM polarização do vácuo, rotulagem por elipticidade e
 integrador direto. Dois blocos que se mesclam no fim, 17 lg B × 9 lg T × 9 lg g

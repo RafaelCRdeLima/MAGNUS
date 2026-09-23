@@ -109,9 +109,13 @@ def lightcurve(LC, lo, nph, out):
     ax.set_xlabel("Rotational phase")
     ax.set_ylabel("Counts")
     ax.set_xlim(0, 2)
-    ax.legend(loc="lower right", fontsize=9.5, frameon=True, framealpha=0.9,
-              facecolor="white", edgecolor="none", borderpad=0.6,
-              labelspacing=0.35, handlelength=1.6)
+    # A legenda vai ACIMA dos eixos, numa linha so. Dentro do quadro ela ficava
+    # no canto inferior direito, exatamente onde caem os pontos do ultimo minimo
+    # (fases 1,9 a 2,0): os marcadores encostavam nas entradas e o olho lia os
+    # dados como parte da legenda.
+    ax.legend(loc="lower center", bbox_to_anchor=(0.5, 1.005), ncol=4,
+              fontsize=9.5, frameon=False, borderpad=0.0, columnspacing=1.6,
+              handlelength=1.6, handletextpad=0.6)
     _finish(ax)
     fig.tight_layout()
     fig.savefig(out.with_suffix(".pdf")); fig.savefig(out.with_suffix(".png"), dpi=200)
@@ -138,7 +142,25 @@ def spectrum(SP, so, energy, out):
 def main():
     d = Path(sys.argv[1])
     n = int(sys.argv[2]) if len(sys.argv) > 2 else 140
-    LC, SP, lo, so, nph, energy = sample_models(d, n)
+    # Cache das amostras. Ajustar estilo de figura nao pode custar outra varredura
+    # da posterior pelo motor (sao n execucoes do C++, minutos). Reusa se o cache
+    # tiver pelo menos tantas amostras quanto se pediu e for mais novo que o
+    # resultado; --refazer ignora o cache.
+    refazer = "--refazer" in sys.argv
+    cache = d / "amostras_figuras.npz"
+    usar = (cache.exists() and not refazer
+            and cache.stat().st_mtime >= (d / "resultado.json").stat().st_mtime)
+    if usar:
+        z = np.load(cache)
+        if int(z["n"]) >= n:
+            LC, SP, lo, so = z["LC"], z["SP"], z["lo"], z["so"]
+            nph, energy = int(z["nph"]), z["energy"]
+            print(f"reusando {cache.name} ({int(z['n'])} amostras)")
+        else:
+            usar = False
+    if not usar:
+        LC, SP, lo, so, nph, energy = sample_models(d, n)
+        np.savez(cache, LC=LC, SP=SP, lo=lo, so=so, nph=nph, energy=energy, n=n)
     lightcurve(LC, lo, nph, d / "fig_lightcurve")
     spectrum(SP, so, energy, d / "fig_spectrum")
     print(f"figuras de publicação salvas em {d}/ (fig_lightcurve, fig_spectrum; .pdf + .png)")

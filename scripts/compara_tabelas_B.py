@@ -67,12 +67,19 @@ def flux_lgw(axes, w, lgb, lgt, lgg, thb):
 
 
 def main():
-    fields = [float(x) for x in sys.argv[1:]] or [13.62, 13.72, 13.42]
-    coarse = read_table(ROOT / "tabelas" / "magnus_campoBg.magnus")
-    dense_path = ROOT / "tabelas" / "magnus_campoBg_denso.magnus"
+    fields = [float(x) for x in sys.argv[1:]] or [13.85, 13.70, 13.55]
+    # A grossa foi para tabelas/obsoletas junto com as demais de livre-livre
+    # errado; ela segue aqui porque o ponto da figura e o ESPACAMENTO em lg B,
+    # nao a fisica. A densa e a de producao, com vacuo (v4, 0,05 dex).
+    coarse_path = ROOT / "tabelas" / "obsoletas" / "magnus_campoBg.magnus"
+    if not coarse_path.exists():
+        coarse_path = ROOT / "tabelas" / "magnus_campoBg.magnus"
+    coarse = read_table(coarse_path)
+    dense_path = ROOT / "tabelas" / "magnus_campoBg_vacuo_v4.magnus"
     if not dense_path.exists():
-        dense_path = ROOT / "build" / "magnus_campoBg_denso.magnus"
+        dense_path = ROOT / "tabelas" / "magnus_campoBg_denso_v3.magnus"
     dense = read_table(dense_path)
+    print(f"grossa: {coarse_path.name}   densa: {dense_path.name}")
     lgt, lgg, thb = 6.114, 14.2, 0.0
     fig, axs = plt.subplots(1, len(fields), figsize=(4.6 * len(fields), 3.9), sharey=True)
     axs = np.atleast_1d(axs)

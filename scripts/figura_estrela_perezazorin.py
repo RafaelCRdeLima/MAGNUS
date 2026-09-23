@@ -33,7 +33,8 @@ def load(result_dir):
              tp1=s.get("baseKT", 0.09), a1=s.get("peaking", 0.5),
              tp2=s.get("baseKT2", s.get("baseKT", 0.09)),
              a2=s.get("peaking2", s.get("peaking", 0.5)),
-             beta=s.get("poleTilt2", 0.0), tmin_frac=0.3)
+             beta=s.get("poleTilt2", 0.0), gamma=s.get("poleTilt2b", 0.0),
+             tmin_frac=0.3)
     return g
 
 
@@ -52,12 +53,20 @@ def rodrigues(v, k, ang):
     return v*c + np.cross(k, v)*s + k*(k @ v)*(1-c)
 
 
-def pole_axes(mhat, beta_deg):
-    """(eixo1, eixo2) para o m_hat corrente (ja girado pela fase)."""
+def pole_axes(mhat, beta_deg, gamma_deg=0.0):
+    """(eixo1, eixo2) para o m_hat corrente (ja girado pela fase).
+
+    Segue o motor (engine/main.cpp): o polo 2 nasce em -m_hat, e girado por beta
+    em torno de (B x z), que e o plano magneto-rotacional, e depois por gamma em
+    torno do PROPRIO eixo magnetico, o que varre o azimute do desvio. Com os dois
+    ele aponta para qualquer direcao; gamma=0 recupera o modelo de um so beta.
+    """
     k = np.array([mhat[1], -mhat[0], 0.0])
     nk = np.linalg.norm(k)
     k = k/nk if nk > 1e-9 else np.array([1.0, 0.0, 0.0])
     axis2 = rodrigues(-mhat, k, np.deg2rad(beta_deg))
+    if abs(gamma_deg) > 1e-9:
+        axis2 = rodrigues(axis2, mhat, np.deg2rad(gamma_deg))
     return mhat, axis2
 
 
@@ -76,7 +85,7 @@ def _lobe(c, tp4, a):
 
 def perez_azorin_T(P, mhat, g):
     """kT (keV) pela lei de dois polos, com polo 2 possivelmente nao-antipodal."""
-    e1, e2 = pole_axes(mhat, g["beta"])
+    e1, e2 = pole_axes(mhat, g["beta"], g["gamma"])
     c1 = P @ e1
     c2 = P @ e2
     tmin4 = (g["tmin_frac"]*g["tp1"])**4
@@ -124,8 +133,22 @@ def main():
     g = load(result_dir)
     mhat0 = unit(g["colat"], g["azim"])
     hot = max(g["tp1"], g["tp2"])
-    norm = colors.Normalize(vmin=0.055, vmax=hot)
-    main_phase = (90.0 - g["azim"]) / 360.0
+    # O piso da lei e T_min = tmin_frac * T_p1. Fixar vmin em 0,055 keV, como
+    # antes, deixava o mapa inteiro preto quando os polos sao frios: com
+    # kT_p1 = 68 eV o piso fica em 20 eV, muito abaixo daquele corte.
+    cold = g["tmin_frac"] * g["tp1"]
+    norm = colors.Normalize(vmin=cold, vmax=hot)
+    # Fase da vista principal: a que deixa os DOIS polos visiveis ao mesmo tempo.
+    # A regra antiga, (90 - azim)/360, trazia so o polo 1 para a frente, e com
+    # gamma livre o polo 2 saia de vista.
+    w0, u0, r0 = camera(VIEW_INCL)
+    melhor, main_phase = -9e9, (90.0 - g["azim"]) / 360.0
+    for ph_try in np.linspace(0.0, 1.0, 721)[:-1]:
+        mk = rot_z(mhat0, 2*np.pi*ph_try)
+        e1k, e2k = pole_axes(mk, g["beta"], g["gamma"])
+        v = min(e1k @ w0, e2k @ w0) + 0.25*(e1k @ w0 + e2k @ w0)
+        if v > melhor:
+            melhor, main_phase = v, ph_try
 
     fig = plt.figure(figsize=(7.2, 8.4))
     gs = GridSpec(2, 4, height_ratios=[3.0, 1.0], hspace=0.18, wspace=0.08,
@@ -138,7 +161,7 @@ def main():
                  arrowprops=dict(arrowstyle="-|>", lw=1.6, color="#111"), zorder=7)
     axm.text(xn+0.05, 1.20, r"$\Omega$", fontsize=13, zorder=7)
     # marca os dois polos magneticos com rotulos neutros (temperaturas ~iguais)
-    e1, e2 = pole_axes(mhat, g["beta"])
+    e1, e2 = pole_axes(mhat, g["beta"], g["gamma"])
     for axis, tp, col, name in [(e1, g["tp1"], COL1, "pole 1"), (e2, g["tp2"], COL2, "pole 2")]:
         xp, yp, front = project(axis, w, u, r)
         if front:
@@ -154,7 +177,7 @@ def main():
         axk = fig.add_subplot(gs[1, k])
         wk, uk, rk, mk = render_disk(axk, ph, 300, norm, g, mhat0)
         graticule(axk, wk, uk, rk, 2*np.pi*ph, lw=0.3)
-        e1k, e2k = pole_axes(mk, g["beta"])
+        e1k, e2k = pole_axes(mk, g["beta"], g["gamma"])
         for axis, col in [(e1k, COL1), (e2k, COL2)]:
             xp, yp, front = project(axis, wk, uk, rk)
             if front:
@@ -172,7 +195,7 @@ def main():
 
     fig.savefig(out.with_suffix(".pdf"), bbox_inches="tight")
     fig.savefig(out.with_suffix(".png"), dpi=200, bbox_inches="tight")
-    print(f"figura Perez-Azorin (2 polos, beta={g['beta']:.1f} deg) salva: "
+    print(f"figura Perez-Azorin (2 polos, beta={g['beta']:.1f}, gamma={g['gamma']:.1f} deg) salva: "
           f"T_p1={g['tp1']*1e3:.0f} eV (a1={g['a1']:.2f}), "
           f"T_p2={g['tp2']*1e3:.0f} eV (a2={g['a2']:.2f})")
 

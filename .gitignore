@@ -30,3 +30,27 @@ projetos/**/*.fls
 projetos/**/*.log
 projetos/**/*.out
 projetos/**/*.synctex.gz
+
+# ---------------------------------------------------------------------------
+# Tabelas de intensidade.
+#
+# As grandes nao vivem no git: sao depositadas no Zenodo, com DOI proprio, e o
+# que o repositorio versiona e tabelas/MANIFEST.json (formato, eixos, sha256).
+# Obter com: python3 scripts/tabelas_baixar.py
+# Conferir com: python3 scripts/tabelas_manifesto.py verificar
+#
+# A regra ignora por padrao, o que e o lado seguro: uma tabela nova de 20 MB
+# nao entra no historico por descuido. As que ja estavam versionadas continuam,
+# listadas abaixo uma a uma.
+tabelas/**/*.magnus
+!tabelas/estagio2_B135_thetab.magnus
+!tabelas/fina_S1.magnus
+!tabelas/fina_S10.magnus
+!tabelas/fina_Sinf.magnus
+!tabelas/magnus_HB1350_completa.magnus
+!tabelas/magnus_campoBg_denso_v2.magnus
+!tabelas/magnus_campoBg_denso_v2_atom.magnus
+!tabelas/obsoletas/magnus_campoB.magnus
+!tabelas/obsoletas/magnus_campoBg.magnus
+!tabelas/obsoletas/magnus_campoBg_denso.magnus
+!tabelas/obsoletas/magnus_campoBg_denso_ext.magnus

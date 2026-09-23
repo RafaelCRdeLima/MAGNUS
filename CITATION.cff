@@ -31,3 +31,15 @@ keywords:
   - general relativity
   - X-ray astronomy
   - Bayesian inference
+
+# As TABELAS de atmosfera tem deposito e DOI proprios, separados deste. Depois
+# de publicar (tabelas/zenodo/publicar.py), descomente e preencha:
+#
+# references:
+#   - type: data
+#     title: "MAGNUS magnetized neutron-star atmosphere tables: specific intensity on grids of field strength, temperature, gravity and field inclination"
+#     authors:
+#       - family-names: "de Lima"
+#         given-names: "Rafael C. R."
+#     doi: 10.5281/zenodo.XXXXXXXX   # DOI de conceito do deposito das tabelas
+#     year: 2026

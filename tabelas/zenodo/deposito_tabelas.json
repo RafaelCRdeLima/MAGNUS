@@ -1,0 +1,69 @@
+{
+ "_comentario": [
+  "Metadados do deposito das TABELAS no Zenodo. Separado do deposito do CODIGO",
+  "(concept DOI 10.5281/zenodo.22760147), porque sao objetos diferentes: o codigo",
+  "e GPL-3.0 e muda toda semana, as tabelas sao dados CC-BY-4.0 que custam horas",
+  "de CPU e precisam ser citaveis por si.",
+  "",
+  "O campo 'arquivos' lista o que entra, por caminho relativo a tabelas/. O",
+  "publicar.py acrescenta MANIFEST.json e README.md automaticamente, para que o",
+  "deposito nao seja um binario opaco.",
+  "",
+  "Se algum dia quiser um DOI por tabela em vez de um para o conjunto, basta",
+  "duplicar este arquivo, deixar um unico nome em 'arquivos' e rodar o",
+  "publicar.py apontando para cada copia."
+ ],
+
+ "arquivos": [
+  "magnus_campoBg_denso_v2.magnus",
+  "magnus_campoBg_denso_v2_atom.magnus",
+  "magnus_campoBg_denso_v3.magnus",
+  "magnus_campoBg_vacuo_v4.magnus"
+ ],
+
+ "metadata": {
+  "upload_type": "dataset",
+  "title": "MAGNUS magnetized neutron-star atmosphere tables: specific intensity on grids of field strength, temperature, gravity and field inclination",
+  "version": "1.0.0",
+  "language": "eng",
+  "access_right": "open",
+  "license": "cc-by-4.0",
+
+  "creators": [
+   {
+    "name": "de Lima, Rafael C. R.",
+    "affiliation": "Universidade do Estado de Santa Catarina (UDESC); ICRANet, Universita degli Studi di Ferrara"
+   }
+  ],
+
+  "description": "<p>Tables of emergent specific intensity from magnetized, fully ionized hydrogen neutron-star atmospheres, computed with <a href=\"https://github.com/RafaelCRdeLima/MAGNUS\">MAGNUS</a>. They are the atmosphere input for spectral and pulse-profile fitting of thermally emitting isolated neutron stars.</p>\n\n<p>Each table is a binary file in the <code>MAGNUSI2</code> format: an 8-byte magic string, then six axes written as a 32-bit count followed by that many 32-bit floats (lg B, lg T, lg g, theta_B, mu, lg E), then the intensity block. Units are log10(B/G), log10(T_eff/K), log10(g/cm s^-2), degrees, cosine of the emission angle, and log10(E/keV). The accompanying <code>MANIFEST.json</code> carries the exact axes, sizes and SHA-256 of every file; <code>README.md</code> carries the physics and the provenance of each grid.</p>\n\n<h4>Contents</h4>\n<table>\n<tr><th>File</th><th>Grid (lg B x lg T x lg g x theta_B)</th><th>Models</th><th>Vacuum polarization</th></tr>\n<tr><td>magnus_campoBg_denso_v2.magnus</td><td>15 x 7 x 3 x 3</td><td>945</td><td>no</td></tr>\n<tr><td>magnus_campoBg_denso_v2_atom.magnus</td><td>15 x 7 x 3 x 3</td><td>945</td><td>no, partial ionization</td></tr>\n<tr><td>magnus_campoBg_denso_v3.magnus</td><td>17 x 9 x 5 x 3</td><td>2295</td><td>no</td></tr>\n<tr><td>magnus_campoBg_vacuo_v4.magnus</td><td>17 x 9 x 9 x 3</td><td>4131</td><td><strong>yes</strong></td></tr>\n</table>\n<p>All share 8 emission angles and 160 energies spanning 0.03-20 keV.</p>\n\n<h4>Physics</h4>\n<p>The v2 tables introduced the quantizing Coulomb logarithm in the cyclic components of free-free absorption (Eq. 44 of Potekhin &amp; Chabrier 2003). Validation against the Rosseland means of that work and the monochromatic opacities of Suleimanov, Potekhin &amp; Werner (2009) had shown the X mode to be 3-6 times too transparent at lg B &gt;= 13 without it.</p>\n<p>The v3 table extends the v2 axes without changing the physics: cells shared with v2 are byte-for-byte identical. The axes were extended because fits were running into the v2 boundaries in field, gravity and temperature.</p>\n<p>The v4 table is the first with <strong>vacuum polarization</strong>, mode labelling by ellipticity and a direct integrator, and it doubles the gravity resolution to 0.1 dex. Measured against v3 at lg g 14.4, lg T 5.9-6.1, over 0.15-1.0 keV, the median intensity change is 0.2 % at lg B 13.30, 0.5 % at 13.55, <strong>5.0 % at 13.85</strong> and 7.3 % at 14.00, with p90 reaching 70 % and 126 % at the two highest fields. Vacuum polarization is therefore not negligible for sources with lg B around 13.85, and the small-effect estimate from Eq. 5 of van Adelsberg &amp; Lai (2006) underestimates it.</p>\n\n<h4>Quality</h4>\n<p>Flux-conservation error per model in v4: median 1.0 %, p90 3.1 %, with 1.7 % of models above 10 % and 5 above 30 %. The poor tail sits entirely in the hot, high-field corner (lg B &gt;= 13.9 with lg T &gt;= 6.20). Clamping at |lg w| = 30 affects 15.8 % of cells, all above 3 keV where the ratio to the Planck function overflows in the Wien tail; within 0.15-1.0 keV it is 0.03 %.</p>\n\n<h4>How to cite</h4>\n<p>Please cite this dataset and the MAGNUS code (concept DOI 10.5281/zenodo.22760147) separately, and name the table by file and SHA-256 as recorded in MANIFEST.json.</p>",
+
+  "keywords": [
+   "neutron stars",
+   "magnetars",
+   "magnetized atmospheres",
+   "radiative transfer",
+   "vacuum polarization",
+   "X-ray astronomy",
+   "opacity tables",
+   "RBS 1223"
+  ],
+
+  "related_identifiers": [
+   {
+    "identifier": "10.5281/zenodo.22760147",
+    "relation": "isSupplementTo",
+    "resource_type": "software",
+    "scheme": "doi"
+   },
+   {
+    "identifier": "https://github.com/RafaelCRdeLima/MAGNUS",
+    "relation": "isDocumentedBy",
+    "resource_type": "software",
+    "scheme": "url"
+   }
+  ],
+
+  "notes": "Generated by scripts/tabela_campo_g_denso.py and merged with scripts/mesclar_tabelas.py. Regeneration cost: about 5.3 h per model on one core of the AMD EPYC nodes of the sci-com cluster (UFES), 1.6 h on the development desktop, with a 0.43 GB memory peak per model for the vacuum branch."
+ }
+}

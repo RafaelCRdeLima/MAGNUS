@@ -1,0 +1,601 @@
+{
+ "descricao": "Identidade das tabelas de intensidade do MAGNUS. A fisica de cada uma esta em tabelas/README.md; aqui ficam formato, eixos e sha256, para que um resultado possa nomear sem ambiguidade a tabela usada.",
+ "gerado_por": "scripts/tabelas_manifesto.py",
+ "unidades": {
+  "lgB": "log10(B / G)",
+  "lgT": "log10(T_eff / K)",
+  "lgg": "log10(g / cm s^-2)",
+  "thetaB": "graus entre o campo e a normal",
+  "mu": "cosseno do angulo de emissao",
+  "lgE": "log10(E / keV)"
+ },
+ "deposito": {
+  "_": "Preencher apos publicar. Ver tabelas/zenodo/publicar.py",
+  "doi_conceito": "",
+  "doi_versao": "",
+  "registro": ""
+ },
+ "tabelas": [
+  {
+   "formato": "MAGNUSI1",
+   "eixos": {
+    "lgT": {
+     "n": 3,
+     "min": 6.0,
+     "max": 6.2,
+     "passo": 0.1
+    },
+    "lgg": {
+     "n": 1,
+     "min": 14.4,
+     "max": 14.4,
+     "passo": null
+    },
+    "thetaB": {
+     "n": 6,
+     "min": 0.0,
+     "max": 75.0,
+     "passo": 15.0
+    },
+    "mu": {
+     "n": 8,
+     "min": 0.019855,
+     "max": 0.980145,
+     "passo": null
+    },
+    "lgE": {
+     "n": 160,
+     "min": -1.522879,
+     "max": 1.30103,
+     "passo": 0.01776
+    }
+   },
+   "modelos": 18,
+   "bytes_cabecalho": 740,
+   "arquivo": "estagio2_B135_thetab.magnus",
+   "bytes": 92900,
+   "sha256": "31b8d004f6c49299d0efd3c2f6e84d71b75ab14d18d910223bfb791ef0eb50ef",
+   "nota": "Grade menor do primeiro varrimento em theta_B."
+  },
+  {
+   "formato": "MAGNUSI1",
+   "eixos": {
+    "lgT": {
+     "n": 12,
+     "min": 5.699,
+     "max": 6.799,
+     "passo": null
+    },
+    "lgg": {
+     "n": 1,
+     "min": 14.38,
+     "max": 14.38,
+     "passo": null
+    },
+    "thetaB": {
+     "n": 3,
+     "min": 0.0,
+     "max": 60.0,
+     "passo": 30.0
+    },
+    "mu": {
+     "n": 8,
+     "min": 0.019855,
+     "max": 0.980145,
+     "passo": null
+    },
+    "lgE": {
+     "n": 160,
+     "min": -1.522879,
+     "max": 1.30103,
+     "passo": 0.01776
+    }
+   },
+   "modelos": 36,
+   "bytes_cabecalho": 764,
+   "arquivo": "fina_S1.magnus",
+   "bytes": 185084,
+   "sha256": "6365926ed91de600df39a198c1e5bb6b2aa1171a0fcffeabebc30b3e8bc1c3f0",
+   "nota": "Grade fina de teste, S = 1."
+  },
+  {
+   "formato": "MAGNUSI1",
+   "eixos": {
+    "lgT": {
+     "n": 12,
+     "min": 5.699,
+     "max": 6.799,
+     "passo": null
+    },
+    "lgg": {
+     "n": 1,
+     "min": 14.38,
+     "max": 14.38,
+     "passo": null
+    },
+    "thetaB": {
+     "n": 3,
+     "min": 0.0,
+     "max": 60.0,
+     "passo": 30.0
+    },
+    "mu": {
+     "n": 8,
+     "min": 0.019855,
+     "max": 0.980145,
+     "passo": null
+    },
+    "lgE": {
+     "n": 160,
+     "min": -1.522879,
+     "max": 1.30103,
+     "passo": 0.01776
+    }
+   },
+   "modelos": 36,
+   "bytes_cabecalho": 764,
+   "arquivo": "fina_S10.magnus",
+   "bytes": 185084,
+   "sha256": "b3bae2511fde43eb5b3578acd94ad189e0f3d6a0b48bd680805b4a3f4da05fe6",
+   "nota": "Grade fina de teste, S = 10."
+  },
+  {
+   "formato": "MAGNUSI1",
+   "eixos": {
+    "lgT": {
+     "n": 12,
+     "min": 5.699,
+     "max": 6.799,
+     "passo": null
+    },
+    "lgg": {
+     "n": 1,
+     "min": 14.38,
+     "max": 14.38,
+     "passo": null
+    },
+    "thetaB": {
+     "n": 3,
+     "min": 0.0,
+     "max": 60.0,
+     "passo": 30.0
+    },
+    "mu": {
+     "n": 8,
+     "min": 0.019855,
+     "max": 0.980145,
+     "passo": null
+    },
+    "lgE": {
+     "n": 160,
+     "min": -1.522879,
+     "max": 1.30103,
+     "passo": 0.01776
+    }
+   },
+   "modelos": 36,
+   "bytes_cabecalho": 764,
+   "arquivo": "fina_Sinf.magnus",
+   "bytes": 185084,
+   "sha256": "fe945210d2b26e3f6faf1feb333486d7b4ee8cf8efd82a119ec291566e6d2339",
+   "nota": "Grade fina de teste, S -> infinito."
+  },
+  {
+   "formato": "MAGNUSI1",
+   "eixos": {
+    "lgT": {
+     "n": 12,
+     "min": 5.69897,
+     "max": 6.79934,
+     "passo": null
+    },
+    "lgg": {
+     "n": 1,
+     "min": 14.38,
+     "max": 14.38,
+     "passo": null
+    },
+    "thetaB": {
+     "n": 6,
+     "min": 0.0,
+     "max": 75.0,
+     "passo": 15.0
+    },
+    "mu": {
+     "n": 8,
+     "min": 0.019855,
+     "max": 0.980145,
+     "passo": null
+    },
+    "lgE": {
+     "n": 160,
+     "min": -1.522879,
+     "max": 1.30103,
+     "passo": 0.01776
+    }
+   },
+   "modelos": 72,
+   "bytes_cabecalho": 776,
+   "arquivo": "magnus_HB1350_completa.magnus",
+   "bytes": 369416,
+   "sha256": "6ecef99d792ea366f3739076c1c44db58fa0198c2bb01a560ac628e9178df4bb",
+   "nota": "Grade principal de campo fixo (lg B 13,5). Primeira usada nos ajustes da RBS 1223."
+  },
+  {
+   "formato": "MAGNUSI2",
+   "eixos": {
+    "lgB": {
+     "n": 15,
+     "min": 13.2,
+     "max": 13.9,
+     "passo": 0.05
+    },
+    "lgT": {
+     "n": 7,
+     "min": 5.699,
+     "max": 6.301,
+     "passo": null
+    },
+    "lgg": {
+     "n": 3,
+     "min": 14.0,
+     "max": 14.4,
+     "passo": 0.2
+    },
+    "thetaB": {
+     "n": 3,
+     "min": 0.0,
+     "max": 60.0,
+     "passo": 30.0
+    },
+    "mu": {
+     "n": 8,
+     "min": 0.019855,
+     "max": 0.980145,
+     "passo": null
+    },
+    "lgE": {
+     "n": 160,
+     "min": -1.522879,
+     "max": 1.30103,
+     "passo": 0.01776
+    }
+   },
+   "modelos": 945,
+   "bytes_cabecalho": 816,
+   "arquivo": "magnus_campoBg_denso_v2.magnus",
+   "bytes": 4839216,
+   "sha256": "fe3624fd88946a350d2b2fb770ed15b96ef3548c19735bed707c2c2746b97d50",
+   "nota": "Producao de 16/09 a 18/09/2026. Primeira com o logaritmo de Coulomb quantizante no livre-livre (Eq. 44 de PC03). Hidrogenio totalmente ionizado."
+  },
+  {
+   "formato": "MAGNUSI2",
+   "eixos": {
+    "lgB": {
+     "n": 15,
+     "min": 13.2,
+     "max": 13.9,
+     "passo": 0.05
+    },
+    "lgT": {
+     "n": 7,
+     "min": 5.699,
+     "max": 6.301,
+     "passo": null
+    },
+    "lgg": {
+     "n": 3,
+     "min": 14.0,
+     "max": 14.4,
+     "passo": 0.2
+    },
+    "thetaB": {
+     "n": 3,
+     "min": 0.0,
+     "max": 60.0,
+     "passo": 30.0
+    },
+    "mu": {
+     "n": 8,
+     "min": 0.019855,
+     "max": 0.980145,
+     "passo": null
+    },
+    "lgE": {
+     "n": 160,
+     "min": -1.522879,
+     "max": 1.30103,
+     "passo": 0.01776
+    }
+   },
+   "modelos": 945,
+   "bytes_cabecalho": 816,
+   "arquivo": "magnus_campoBg_denso_v2_atom.magnus",
+   "bytes": 4839216,
+   "sha256": "d344869da7b35893166b452e55143557d7b9cf8153888697e268cdb92f64cd0f",
+   "nota": "Como a v2, com ionizacao parcial (fracao neutra de PC03 e ligado-livre atomico de primeira passada), para medir o efeito dos atomos."
+  },
+  {
+   "formato": "MAGNUSI2",
+   "eixos": {
+    "lgB": {
+     "n": 17,
+     "min": 13.2,
+     "max": 14.0,
+     "passo": 0.05
+    },
+    "lgT": {
+     "n": 9,
+     "min": 5.5,
+     "max": 6.301,
+     "passo": null
+    },
+    "lgg": {
+     "n": 5,
+     "min": 14.0,
+     "max": 14.8,
+     "passo": 0.2
+    },
+    "thetaB": {
+     "n": 3,
+     "min": 0.0,
+     "max": 60.0,
+     "passo": 30.0
+    },
+    "mu": {
+     "n": 8,
+     "min": 0.019855,
+     "max": 0.980145,
+     "passo": null
+    },
+    "lgE": {
+     "n": 160,
+     "min": -1.522879,
+     "max": 1.30103,
+     "passo": 0.01776
+    }
+   },
+   "modelos": 2295,
+   "bytes_cabecalho": 840,
+   "arquivo": "magnus_campoBg_denso_v3.magnus",
+   "bytes": 11751240,
+   "sha256": "8844e4a1358acd0f33e50f1e0b62e2ceac7c1287f55fd44697120c4c14d9d7e2",
+   "nota": "A v2 com os eixos estendidos, SEM vacuo. Celulas em comum com a v2 sao byte a byte identicas. Serve de linha de base para medir o efeito do vacuo. Ver README, secao 'Tabela v3'."
+  },
+  {
+   "formato": "MAGNUSI2",
+   "eixos": {
+    "lgB": {
+     "n": 17,
+     "min": 13.2,
+     "max": 14.0,
+     "passo": 0.05
+    },
+    "lgT": {
+     "n": 9,
+     "min": 5.5,
+     "max": 6.301,
+     "passo": null
+    },
+    "lgg": {
+     "n": 9,
+     "min": 14.0,
+     "max": 14.8,
+     "passo": 0.1
+    },
+    "thetaB": {
+     "n": 3,
+     "min": 0.0,
+     "max": 60.0,
+     "passo": 30.0
+    },
+    "mu": {
+     "n": 8,
+     "min": 0.019855,
+     "max": 0.980145,
+     "passo": null
+    },
+    "lgE": {
+     "n": 160,
+     "min": -1.522879,
+     "max": 1.30103,
+     "passo": 0.01776
+    }
+   },
+   "modelos": 4131,
+   "bytes_cabecalho": 856,
+   "arquivo": "magnus_campoBg_vacuo_v4.magnus",
+   "bytes": 21151576,
+   "sha256": "4718dd7e44eafa332f1bbd0ac31bd9658a087fc7160039a9a0520139afaa2da9",
+   "nota": "Producao desde 22/09/2026. Primeira COM polarizacao do vacuo, rotulagem de modos por elipticidade e integrador direto; passo 0,1 em lg g. Ver README, secao 'Tabela v4'."
+  },
+  {
+   "formato": "MAGNUSI2",
+   "eixos": {
+    "lgB": {
+     "n": 4,
+     "min": 12.5,
+     "max": 13.8,
+     "passo": null
+    },
+    "lgT": {
+     "n": 12,
+     "min": 5.699,
+     "max": 6.799,
+     "passo": null
+    },
+    "lgg": {
+     "n": 1,
+     "min": 14.38,
+     "max": 14.38,
+     "passo": null
+    },
+    "thetaB": {
+     "n": 3,
+     "min": 0.0,
+     "max": 60.0,
+     "passo": 30.0
+    },
+    "mu": {
+     "n": 8,
+     "min": 0.019855,
+     "max": 0.980145,
+     "passo": null
+    },
+    "lgE": {
+     "n": 160,
+     "min": -1.522879,
+     "max": 1.30103,
+     "passo": 0.01776
+    }
+   },
+   "modelos": 144,
+   "bytes_cabecalho": 784,
+   "arquivo": "obsoletas/magnus_campoB.magnus",
+   "bytes": 738064,
+   "sha256": "573aec8e4bbebb287ec2785aad79bf3f69358aa1d33c638da2d56748a804653f",
+   "nota": "OBSOLETA. Gaunt nao magnetico no livre-livre."
+  },
+  {
+   "formato": "MAGNUSI2",
+   "eixos": {
+    "lgB": {
+     "n": 4,
+     "min": 12.5,
+     "max": 13.8,
+     "passo": null
+    },
+    "lgT": {
+     "n": 12,
+     "min": 5.699,
+     "max": 6.799,
+     "passo": null
+    },
+    "lgg": {
+     "n": 5,
+     "min": 13.8,
+     "max": 14.6,
+     "passo": 0.2
+    },
+    "thetaB": {
+     "n": 3,
+     "min": 0.0,
+     "max": 60.0,
+     "passo": 30.0
+    },
+    "mu": {
+     "n": 8,
+     "min": 0.019855,
+     "max": 0.980145,
+     "passo": null
+    },
+    "lgE": {
+     "n": 160,
+     "min": -1.522879,
+     "max": 1.30103,
+     "passo": 0.01776
+    }
+   },
+   "modelos": 720,
+   "bytes_cabecalho": 800,
+   "arquivo": "obsoletas/magnus_campoBg.magnus",
+   "bytes": 3687200,
+   "sha256": "e96e74768c68f2b0d16fd3d5586b0df9065681913df7b9fa15499103d89f20f4",
+   "nota": "OBSOLETA. 4 nos em B a 0,3-0,5 dex geram depressoes espurias na interpolacao."
+  },
+  {
+   "formato": "MAGNUSI2",
+   "eixos": {
+    "lgB": {
+     "n": 15,
+     "min": 13.2,
+     "max": 13.9,
+     "passo": 0.05
+    },
+    "lgT": {
+     "n": 7,
+     "min": 5.699,
+     "max": 6.301,
+     "passo": null
+    },
+    "lgg": {
+     "n": 3,
+     "min": 14.0,
+     "max": 14.4,
+     "passo": 0.2
+    },
+    "thetaB": {
+     "n": 3,
+     "min": 0.0,
+     "max": 60.0,
+     "passo": 30.0
+    },
+    "mu": {
+     "n": 8,
+     "min": 0.019855,
+     "max": 0.980145,
+     "passo": null
+    },
+    "lgE": {
+     "n": 160,
+     "min": -1.522879,
+     "max": 1.30103,
+     "passo": 0.01776
+    }
+   },
+   "modelos": 945,
+   "bytes_cabecalho": 816,
+   "arquivo": "obsoletas/magnus_campoBg_denso.magnus",
+   "bytes": 4839216,
+   "sha256": "cb3efc6658d6b99768631185341ad8e0997cbef149029da577c32366ee59833f",
+   "nota": "OBSOLETA. Producao de 13/09/2026, antes da correcao do livre-livre."
+  },
+  {
+   "formato": "MAGNUSI2",
+   "eixos": {
+    "lgB": {
+     "n": 17,
+     "min": 13.2,
+     "max": 14.0,
+     "passo": 0.05
+    },
+    "lgT": {
+     "n": 7,
+     "min": 5.699,
+     "max": 6.301,
+     "passo": null
+    },
+    "lgg": {
+     "n": 5,
+     "min": 14.0,
+     "max": 14.8,
+     "passo": 0.2
+    },
+    "thetaB": {
+     "n": 3,
+     "min": 0.0,
+     "max": 60.0,
+     "passo": 30.0
+    },
+    "mu": {
+     "n": 8,
+     "min": 0.019855,
+     "max": 0.980145,
+     "passo": null
+    },
+    "lgE": {
+     "n": 160,
+     "min": -1.522879,
+     "max": 1.30103,
+     "passo": 0.01776
+    }
+   },
+   "modelos": 1785,
+   "bytes_cabecalho": 832,
+   "arquivo": "obsoletas/magnus_campoBg_denso_ext.magnus",
+   "bytes": 9140032,
+   "sha256": "428185762262c362abf3ea866ac795945967d3df5c0a8562ea0a5bbc4eb1ffe7",
+   "nota": "OBSOLETA. A densa estendida de 14/09/2026, usada so na investigacao do modelo gamma."
+  }
+ ]
+}

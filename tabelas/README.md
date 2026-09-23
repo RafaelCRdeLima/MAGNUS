@@ -1,5 +1,56 @@
 # Tabelas de intensidade produzidas
 
+## Onde elas moram, e como citar
+
+As tabelas grandes **não estão no git**. Elas são depositadas no Zenodo, com DOI
+próprio e separado do DOI do código, e o que o repositório versiona é
+`MANIFEST.json`: formato, eixos e **sha256** de cada arquivo.
+
+A razão é que são objetos diferentes. O código é GPL-3.0 e muda toda semana; as
+tabelas são dados, CC-BY-4.0, custam horas de CPU para regenerar e precisam ser
+citáveis por si. Além disso o arquivo do Zenodo para o código é gerado a partir
+do GitHub, então uma tabela dentro do repositório seria rearquivada inteira a
+cada versão do código, sem nunca ganhar identidade própria.
+
+| o que | onde |
+|---|---|
+| identidade (eixos, tamanho, sha256) | `tabelas/MANIFEST.json`, versionado |
+| física e proveniência de cada grade | este arquivo, versionado |
+| os binários grandes | depósito Zenodo, DOI próprio |
+| tabelas pequenas e históricas | versionadas no git, como sempre estiveram |
+
+```sh
+python3 scripts/tabelas_manifesto.py verificar   # o disco bate com o manifesto?
+python3 scripts/tabelas_manifesto.py gerar       # depois de produzir uma tabela nova
+python3 scripts/tabelas_baixar.py                # obter as que faltam, do Zenodo
+```
+
+**Ao publicar um resultado, nomeie a tabela pelo arquivo e pelo sha256**, não só
+pelo nome. Dois arquivos com o mesmo nome e conteúdos diferentes é exatamente o
+que o manifesto existe para impedir.
+
+### Estado do depósito
+
+Ainda **não publicado**. O rascunho está preparado em `tabelas/zenodo/`:
+
+```sh
+export ZENODO_TOKEN=...                                  # escopo deposit:write, deposit:actions
+python3 tabelas/zenodo/publicar.py --sandbox             # ensaio, sem DOI real
+python3 tabelas/zenodo/publicar.py                       # rascunho real, NÃO publica
+python3 tabelas/zenodo/publicar.py --publicar            # cunha o DOI
+```
+
+O script nunca publica sozinho: cria o rascunho, envia os arquivos, grava os
+metadados e para, deixando o link para conferência. Publicar cunha um DOI e é
+irreversível.
+
+Conteúdo do depósito v1.0.0 (42,6 MB): `magnus_campoBg_denso_v2`,
+`..._v2_atom`, `..._v3` e `magnus_campoBg_vacuo_v4`, mais o `MANIFEST.json` e
+este README. Depois de publicar, preencha o bloco `deposito` do manifesto com os
+DOIs e acrescente a referência ao `CITATION.cff`.
+
+---
+
 - `magnus_HB1350_completa.magnus` — a grade principal: lg B = 13,5, lg g = 14,38,
   12 temperaturas (o eixo exato do `nsmaxg_HB1350ThB00g1438` do Ho) × 6 ângulos
   θ_B (0° a 75°) × 8 μ × 160 energias. 72 modelos convergidos. Foi a primeira

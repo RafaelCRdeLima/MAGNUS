@@ -477,6 +477,19 @@ class FitProblem:
         self.steps = [0.025, 0.12, 1.2, 2.0]
         self.initial = [float(request["mass"]), float(request["radius"]),
                         float(request["inclination"]), float(request.get("phaseOffset", 0.0))]
+        # Faixa da INCLINACAO por pedido. Entrou em 25/09/2026: a posterior da
+        # RBS 1223 tem duas bacias de inclinacao, em ~91,5 e ~95,5 graus,
+        # separadas por uma barreira MEDIDA de DlnL = 60 no caminho entre as
+        # medianas dos dois modos. Um amostrador de ensemble nao atravessa isso
+        # (pediria da ordem de e^60 tentativas), entao o R-hat global fica em ~2,5
+        # por mais iteracoes que se de. Restringir a faixa a UMA bacia converge
+        # dentro dela e transforma a separacao em sistematico declarado, em vez de
+        # escondido no diagnostico. Sem a chave, o comportamento e o de antes.
+        faixa_i = request.get("inclinationRange")
+        if faixa_i:
+            lo_i, hi_i = float(faixa_i[0]), float(faixa_i[1])
+            self.bounds[2] = (lo_i, hi_i)
+            self.initial[2] = min(max(self.initial[2], lo_i + 1.0e-3), hi_i - 1.0e-3)
         # Ajustar a COMPACIDADE u = 2GM/(Rc²) no lugar da massa: é u que o desvio
         # de luz e o redshift constrangem, então (u, R) desemaranha o que (M, R)
         # deixava degenerado — u fixado pela forma do pulso, R pela normalização

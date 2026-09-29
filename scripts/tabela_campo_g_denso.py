@@ -41,10 +41,17 @@ if __name__ == "__main__":
     import argparse
     pre = argparse.ArgumentParser(add_help=False)
     pre.add_argument("--lgb"); pre.add_argument("--lgg"); pre.add_argument("--lgt")
+    # theta_B estava cravado em [0, 30, 60] logo acima, e o grampeamento da
+    # tabela nesses 60 graus e o achado 15 da auditoria: alpha_B chega a 90 na
+    # superficie ajustada e 5,2 por cento do fluxo sai grampeado. Estender a
+    # grade tem de ser um argumento, nao uma edicao do arquivo.
+    pre.add_argument("--thetab")
     known, rest = pre.parse_known_args(sys.argv[1:])
     if known.lgb: grade.LOG_B = [float(x) for x in known.lgb.split(",")]
     if known.lgg: grade.LOG_G = [float(x) for x in known.lgg.split(",")]
     if known.lgt: grade.LOG_T = [float(x) for x in known.lgt.split(",")]
+    if known.thetab:
+        grade.THETA_B_DEG = [float(x) for x in known.thetab.split(",")]
     sys.argv = [sys.argv[0]] + rest
     if not any(a.startswith("--saida") for a in sys.argv[1:]):
         sys.argv += ["--saida", str(ROOT / "build" / "magnus_campoBg_denso.magnus")]

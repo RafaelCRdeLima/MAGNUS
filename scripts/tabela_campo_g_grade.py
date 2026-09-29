@@ -99,12 +99,47 @@ def main() -> None:
     done = np.zeros(_shape()[:4], dtype=bool)   # (nB,nT,nG,nThetaB)
     mu = None
     worst = 0.0
+    # IDENTIDADE da retomada, nao so a forma do array. Aceitar um checkpoint
+    # apenas porque o shape bate deixa misturar modelos incompativeis: eixos de
+    # mesmo tamanho e valores diferentes, ou --vacuo, --atomic, integrador e
+    # ordenacao trocados entre uma submissao e a seguinte. Cada celula ja feita
+    # carregaria a fisica da corrida anterior, sem aviso. Achado 16 da auditoria
+    # de 29/09/2026.
+    identidade = dict(
+        lgb=np.asarray(LOG_B, float), lgt=np.asarray(LOG_T, float),
+        lgg=np.asarray(LOG_G, float), thetab=np.asarray(THETA_B_DEG, float),
+        opcoes=np.asarray([str(arguments.vacuo), str(arguments.atomic),
+                           str(arguments.ordenacao), str(arguments.formal),
+                           str(arguments.iteracoes)]))
     if ckpt.exists():
-        z = np.load(ckpt)
-        if z["log_w"].shape == log_w.shape:
-            log_w = z["log_w"]; done = z["done"]; mu = z["mu"]
-            worst = float(z["worst"])
-            print(f"checkpoint retomado: {done.sum()}/{done.size} pontos ja feitos", flush=True)
+        z = np.load(ckpt, allow_pickle=False)
+        divergencias = []
+        if z["log_w"].shape != log_w.shape:
+            divergencias.append(f"forma {z['log_w'].shape} != {log_w.shape}")
+        for chave, esperado in identidade.items():
+            if chave not in z:
+                divergencias.append(
+                    f"'{chave}' ausente: checkpoint anterior ao registro de identidade")
+                continue
+            achado = z[chave]
+            if achado.shape != esperado.shape:
+                igual = False
+            elif chave == "opcoes":
+                igual = bool(np.array_equal(achado, esperado))
+            else:
+                igual = bool(np.allclose(achado, esperado))
+            if not igual:
+                divergencias.append(
+                    f"'{chave}': {achado.tolist()} != {esperado.tolist()}")
+        if divergencias:
+            raise SystemExit(
+                "RECUSADO: o checkpoint em " + str(ckpt) + " nao e desta grade:\n  "
+                + "\n  ".join(divergencias)
+                + "\nRetomar assim misturaria celulas de fisicas diferentes. "
+                  "Apague o checkpoint para recomecar, ou use --saida com outro nome.")
+        log_w = z["log_w"]; done = z["done"]; mu = z["mu"]
+        worst = float(z["worst"])
+        print(f"checkpoint retomado: {done.sum()}/{done.size} pontos ja feitos", flush=True)
 
     tasks = [(b, t, g, th, arguments.iteracoes, arguments.atomic, arguments.vacuo,
               arguments.ordenacao, arguments.formal)
@@ -132,7 +167,8 @@ def main() -> None:
                   f"th={theta_deg:2.0f} fluxo {flux_error:.1e} {cost:.0f}s ETA {eta:.1f}h",
                   flush=True)
             if completed % arguments.checkpoint_cada == 0:
-                np.savez(ckpt, log_w=log_w, done=done, mu=mu, worst=worst)
+                np.savez(ckpt, log_w=log_w, done=done, mu=mu, worst=worst,
+                         **identidade)
 
     formato.write_with_field(arguments.saida, LOG_B, LOG_T, LOG_G, THETA_B_DEG,
                              mu, np.log10(TABLE_ENERGIES), log_w)

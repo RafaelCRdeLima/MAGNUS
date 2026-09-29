@@ -1410,6 +1410,19 @@ def run_ensemble(problem: FitProblem, pool: WorkerPool, walkers: int, iterations
             f"inteira, com R-hat reportado como 1,00. Aumente o número de "
             f"caminhantes ou afrouxe a priori.")
 
+    # DIMENSAO EFETIVA do suporte, nao o numero de nomes. O passo de
+    # Goodman-Weare propoe Y = X_j + z (X_i - X_j) e so e exato com
+    # aceitacao z^(n-1), onde n e a dimensao do espaco em que o enxame
+    # realmente se move. Uma coordenada congelada tem o mesmo valor em
+    # todos os caminhantes, logo Y herda esse valor e ela nunca se move:
+    # o enxame vive num subespaco afim de dimensao len(names) - frozen.
+    # Usar len(names) punha um fator z^frozen a mais na aceitacao, que
+    # favorece propostas de expansao e infla a dispersao amostrada (medido
+    # em alvo gaussiano de 17 dimensoes livres com 2 congeladas e a=1,3:
+    # +11 por cento na variancia, +5,5 por cento em sigma). A checagem de
+    # posto acima garante que o enxame gera exatamente essas direcoes.
+    free_dimensions = dimensions - frozen
+
     trajectories: list[list[list[float]]] = [[] for _ in range(walkers)]
     trajectory_logps: list[list[float]] = [[] for _ in range(walkers)]
     accepted = [0] * walkers
@@ -1432,7 +1445,7 @@ def run_ensemble(problem: FitProblem, pool: WorkerPool, walkers: int, iterations
             for walker, proposal, proposed_result, stretch in zip(
                     active, proposals, proposed_results, stretch_values):
                 proposal_logp, proposal_pulse = proposed_result
-                log_acceptance = ((dimensions - 1) * math.log(stretch) +
+                log_acceptance = ((free_dimensions - 1) * math.log(stretch) +
                                   proposal_logp - logps[walker])
                 if (math.isfinite(proposal_logp) and
                         math.log(max(rng.random(), 1e-300)) < log_acceptance):

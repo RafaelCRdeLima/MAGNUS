@@ -87,9 +87,12 @@ def main():
                     % (post["u_50"], post["u_97p5"] - post["u_50"],
                        post["u_50"] - post["u_2p5"]))
     ax.plot(Rgrid, linha_M(Rgrid, post["u_50"]), color="#bc4749", lw=1.4, zorder=3)
-    ax.plot(Rgrid, linha_M(Rgrid, 2.0 * HAMBARYAN_MR), color="0.4", lw=1.1,
+    # M/R = 0,087 massas solares por km e uma razao DIMENSIONAL, entao a reta e
+    # M = 0,087 R direto. Passa-la como se fosse u, mesmo dobrada, desenha
+    # 0,0589 R: em compacidade esse mesmo valor corresponde a u = 0,257.
+    ax.plot(Rgrid, HAMBARYAN_MR * Rgrid, color="0.4", lw=1.1,
             ls="-.", zorder=2,
-            label=r"Hambaryan et al. (2011), $M/R=0.087$")
+            label=r"Hambaryan et al. (2011), $M/R=0.087$ ($u=0.257$)")
 
     resumo = []
     for nome, (R, M) in cs.items():
@@ -97,7 +100,7 @@ def main():
         u = eos_mr.compactness(Re, Me)
         ax.plot(Re[Me >= (0.1 if "MIT" in nome else 1.0)],
                 Me[Me >= (0.1 if "MIT" in nome else 1.0)],
-                **ESTILOS[nome], zorder=4, label=ROTULOS.get(nome, nome))
+                **ESTILOS[nome], zorder=4)
         ax.plot(Re[-1], Me[-1], marker="|", color=ESTILOS[nome]["color"],
                 ms=7, mew=1.6, zorder=5)   # a ponta: onde a compacidade para
         umax = float(u.max())
@@ -141,7 +144,7 @@ def main():
     ax.set_ylabel(r"M ($M_\odot$)", fontsize=12)
     ax.grid(alpha=0.25, lw=0.6)
     ax.tick_params(labelsize=10)
-    ax.legend(loc="lower right", fontsize=8.5, framealpha=0.95)
+    ax.legend(loc="lower right", fontsize=9, framealpha=0.95)
     fig.tight_layout()
     for ext in ("pdf", "png"):
         fig.savefig(saida / ("fig_mr_eos.%s" % ext), dpi=140)

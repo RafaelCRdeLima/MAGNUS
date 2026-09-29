@@ -23,8 +23,14 @@ import matplotlib.pyplot as plt
 # ---- constantes (SI) ----
 G = 6.67430e-11
 c = 2.99792458e8
-Msun = 1.98892e30          # kg
-Rsun_km = G * Msun / c**2 / 1e3   # GM_sun/c^2 em km = 1.4766 km
+Msun = 1.98892e30          # kg, usada so onde a massa aparece em kg
+# GM_sun/c^2 em km. NAO derivar de G*Msun: com Msun=1.98892e30 isso da
+# 1,4770038682, enquanto o motor (engine/main.cpp) e o mcmc_fit usam o valor da
+# IAU, 1,4766250385, vindo de GM_sun = 1,32712440018e20 m^3/s^2. A diferenca e
+# de 2,6e-4 relativos, e em compacidade ela desloca u_max de cada EoS na quarta
+# casa, o bastante para mudar quem "entra" num intervalo de 95 por cento. As
+# curvas de EoS e a inferencia tem de falar a mesma lingua.
+Rsun_km = 1.4766250385
 MEV_FM3_TO_PA = 1.602176634e32    # 1 MeV/fm^3 -> Pa (=J/m^3)
 
 # =========================================================================

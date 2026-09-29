@@ -91,6 +91,48 @@ class TestDimensaoEfetiva(unittest.TestCase):
                                        % (coluna, var))
 
 
+class TestCongeladasSaoImpostas(unittest.TestCase):
+    """A checagem de posto recusa posto MENOR que o esperado e aceita posto
+    maior, que e exatamente o caso em que uma coordenada declarada congelada se
+    move. Como o expoente do passo de esticamento depende dessa hipotese, ela
+    tem de ser imposta e conferida, nao suposta."""
+
+    def _problema(self, congelado):
+        return SimpleNamespace(names=["x", "f"], frozen={"f": congelado})
+
+    def test_residuo_de_arredondamento_e_zerado(self):
+        """float32 num checkpoint transforma 0,3 em 0,30000001192092896."""
+        rng = random.Random(874)
+        states = [[rng.gauss(0, 1), 0.30000001192092896] for _ in range(16)]
+        trajetorias = mcmc_fit.run_ensemble(
+            self._problema(0.3), PoolGaussiano(1), 16, 200, 50, 5, 1.3,
+            resume_states=states)["trajectories"]
+        valores = {passo[1] for caminhante in trajetorias for passo in caminhante}
+        self.assertEqual(valores, {0.3})
+
+    def test_congelada_espalhada_pelos_caminhantes_e_imposta(self):
+        """draw_initial_state, no sorteio uniforme da caixa, ignora steps=0 e
+        espalha a coordenada dentro de valor +- 1e-6."""
+        rng = random.Random(874)
+        states = [[rng.gauss(0, 1), 0.3 + rng.uniform(-1e-7, 1e-7)]
+                  for _ in range(16)]
+        trajetorias = mcmc_fit.run_ensemble(
+            self._problema(0.3), PoolGaussiano(1), 16, 200, 50, 5, 1.3,
+            resume_states=states)["trajectories"]
+        valores = {passo[1] for caminhante in trajetorias for passo in caminhante}
+        self.assertEqual(valores, {0.3})
+
+    def test_retomada_com_outro_valor_congelado_e_recusada(self):
+        """Misturar uma retomada de corrida com outra configuracao e o mesmo
+        defeito de reprodutibilidade da retomada de grades."""
+        rng = random.Random(874)
+        states = [[rng.gauss(0, 1), 0.22] for _ in range(16)]
+        with self.assertRaises(RuntimeError) as caso:
+            mcmc_fit.run_ensemble(self._problema(0.3), PoolGaussiano(1), 16,
+                                  50, 10, 5, 1.3, resume_states=states)
+        self.assertIn("congela", str(caso.exception))
+
+
 class TestPosto(unittest.TestCase):
     def test_enxame_degenerado_e_recusado(self):
         """Um enxame que nasce num subespaco menor deixaria parametros

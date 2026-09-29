@@ -1369,6 +1369,31 @@ def run_ensemble(problem: FitProblem, pool: WorkerPool, walkers: int, iterations
         states = [list(s) for s in resume_states]
     else:
         states = [draw_initial_state(problem, rng) for _ in range(walkers)]
+    # As coordenadas congeladas precisam ser EXATAMENTE o valor pedido em todos
+    # os caminhantes, senao o expoente do passo de esticamento abaixo esta
+    # errado. Nao basta confiar na checagem de posto: ela recusa posto MENOR
+    # que o esperado, e aceita posto maior, que e o caso em que uma coordenada
+    # declarada congelada se move. E ha tres maneiras de ela se mover:
+    #   (1) draw_initial_state cai no sorteio uniforme da caixa da priori,
+    #       que ignora steps=0 e espalha a coordenada em valor +- 1e-6;
+    #   (2) cai no ultimo recurso, que soma jitter de 1e-6 a tudo;
+    #   (3) resume_states vem de uma corrida com OUTRO valor congelado.
+    # Os dois primeiros disparam quando a priori aperta, que e o regime das
+    # corridas de bacia restrita. Entao: conferir contra o pedido, recusar
+    # divergencia real, e zerar o residuo de arredondamento.
+    for name, value in dict(getattr(problem, "frozen", {})).items():
+        index = problem.names.index(name)
+        alvo = float(value)
+        tolerancia = 1.0e-6 * max(1.0, abs(alvo))
+        for walker, state in enumerate(states):
+            if abs(state[index] - alvo) > tolerancia:
+                raise RuntimeError(
+                    f"o caminhante {walker} traz '{name}' = {state[index]!r}, "
+                    f"mas o pedido congela esse parametro em {alvo!r}. Se isto "
+                    f"veio de resumeFrom, a retomada e de uma corrida com outra "
+                    f"configuracao e os dois conjuntos nao podem ser misturados.")
+            state[index] = alvo
+
     initial_results = pool.evaluate(problem, states, with_pulse=True)
     logps = [result[0] for result in initial_results]
     pulses = [result[1] for result in initial_results]
@@ -1401,6 +1426,12 @@ def run_ensemble(problem: FitProblem, pool: WorkerPool, walkers: int, iterations
     frozen = len(getattr(problem, "frozen", {}))
     rank = affine_rank(states)
     degenerate_axes = (dimensions - frozen) - rank
+    if degenerate_axes < 0:
+        raise RuntimeError(
+            f"o enxame gera {rank} direcoes, mais que as {dimensions - frozen} "
+            f"livres: alguma coordenada declarada congelada esta se movendo, e "
+            f"o expoente do passo de esticamento ficaria menor que a dimensao "
+            f"real do suporte.")
     if degenerate_axes > 0:
         raise RuntimeError(
             f"o enxame inicial gera só {rank} das {dimensions - frozen} "

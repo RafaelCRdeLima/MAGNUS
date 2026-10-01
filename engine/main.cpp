@@ -89,6 +89,18 @@ struct Config {
     // Linha de absorção gaussiana na superfície, opcional. Profundidade zero a
     // desliga, que é o padrão: o corpo negro puro continua sendo o modelo base.
     double line_energy_kev{0.3};
+    // GEOMETRIA DO CAMPO. O dipolo tem |B| = Bp nos DOIS polos, e local_log_b
+    // grampeia cosseno negativo em zero, entao a intensidade tem de ser avaliada
+    // em |cos(colatitude magnetica)|. A versao ate 01/10/2026 usava
+    // max(c1, c2), com c2 medido do eixo do segundo polo TERMICO, como remendo
+    // para esse grampeamento. Com beta = 0 os dois coincidem, porque axis2 = -m
+    // e max(c, -c) = |c|; com beta != 0 o remendo erra a colatitude efetiva por
+    // beta, o que em beta = 14,7 graus da ate 13 por cento em |B| e 9,4 por
+    // cento na media do hemisferio distante. Pior, a direcao do campo ja usava
+    // |cmag|, entao direcao e intensidade seguiam geometrias diferentes. O
+    // padrao agora e o dipolo coerente; a flag restaura o comportamento antigo
+    // para reproduzir as corridas publicadas.
+    bool field_nearest_pole{false};
     bool line_cyclotron{false};
     double line_width_kev{0.1};
     double line_depth{0.0};
@@ -552,6 +564,7 @@ Config parse_args(int argc, char** argv) {
         else if (key == "--magnetic-field") cfg.magnetic_field_g = std::stod(value());
         else if (key == "--field-peaking") cfg.field_peaking = std::stod(value());
         else if (key == "--field-gr") cfg.field_gr = true;
+        else if (key == "--field-nearest-pole") cfg.field_nearest_pole = true;
         else if (key == "--fit-log-field") cfg.fit_log_field = true;
         else if (key == "--base-temp-mk") cfg.base_temperature_mk = std::stod(value());
         else if (key == "--base-kt-kev") cfg.base_temperature_mk = std::stod(value()) / kt_kev_per_mk;
@@ -2149,9 +2162,12 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
                                   + lobe(c2, a2, t_pole2_4);
                 temperature = std::pow(std::max(1.0e-8, t4), 0.25);
             }
+            // Intensidade e direcao no MESMO dipolo: ambas em |cmag|.
+            const double c_campo = cfg.field_nearest_pole
+                ? std::max(c1, c2) : std::abs(cmag);
             surface.push_back({sample.normal, sample.weight, temperature,
                                dipole_theta_b_deg(cmag, rho), -1,
-                               local_log_b(std::max(c1, c2))});
+                               local_log_b(c_campo)});
         }
     }
     for (std::size_t spot_id = 0; spot_id < cfg.spots.size(); ++spot_id) {

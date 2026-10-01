@@ -389,6 +389,10 @@ class FitProblem:
         self.field_peaking = request.get("fieldPeaking", None)
         # Dipolo de Schwarzschild: a_B e alpha_B do u corrente (B_p = campo polar proprio).
         self.field_gr = bool(request.get("fieldGR", False))
+        # Geometria antiga do campo, intensidade pelo polo mais proximo. Falsa
+        # por padrao: o dipolo coerente e o certo. Existe para reproduzir as
+        # corridas publicadas antes de 01/10/2026.
+        self.field_nearest_pole = bool(request.get("fieldNearestPole", False))
         # Modo de camadas: contínuo de corpo negro + feixe da atmosfera, em toda a
         # superfície (atmosfera fina sobre condensada, à la Hambaryan).
         self.layered_atmosphere = bool(request.get("layeredAtmosphere", False))
@@ -1078,6 +1082,8 @@ class FitProblem:
             command.append("--line-cyclotron")
         if self.field_peaking is not None:
             command.extend(["--field-peaking", str(float(self.field_peaking))])
+        if self.field_nearest_pole:
+            command.append("--field-nearest-pole")
         if self.field_gr:
             command.append("--field-gr")
         if self.layered_atmosphere:

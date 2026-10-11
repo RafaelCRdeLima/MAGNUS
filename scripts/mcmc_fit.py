@@ -21,11 +21,18 @@ import queue
 import random
 import statistics
 import subprocess
+import sys
+import threading
 import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-ENGINE = ROOT / "build" / "magnus_engine"
+#: O BINARIO, com uma porta para trocar de binario sem editar codigo. Existe
+#: porque o motor com OpenMP e compilado em separado (build/magnus_engine_omp) e
+#: tem de ser COMPARADO com o validado, sob o mesmo adaptador e o mesmo pedido.
+#: Sem a variavel, nada muda: o padrao continua sendo build/magnus_engine.
+ENGINE = Path(os.environ.get("MAGNUS_ENGINE",
+                             str(ROOT / "build" / "magnus_engine")))
 #: Os dados de instrumento (perfis, respostas, TBabs) vivem fora do MAGNUS e são
 #: usados SOMENTE PARA LEITURA. O diretório vem da variável de ambiente
 #: MAGNUS_INSTRUMENT_DIR; sem ela, o padrão é a instalação do PULSARIS do autor.
@@ -116,6 +123,48 @@ def percentile(values: list[float], q: float) -> float:
     hi = min(len(ordered) - 1, lo + 1)
     fraction = position - lo
     return ordered[lo] * (1.0 - fraction) + ordered[hi] * fraction
+
+
+def superficie_efetiva(request) -> dict:
+    """Resolucao da esfera com que o modelo foi integrado, para o artefato.
+
+    Espelha a regra do motor: bandas = sphereBands se positivo, senao
+    clamp(2*rings, 16, 60); e por banda max(4, ceil(2*nlat*sin(theta_meio)))
+    azimutes, amostrados no ponto medio. Validado contra o relato do proprio
+    motor com refino 1: 120 bandas dao 18394 pontos nos dois.
+
+    `pontosBase` conta a malha ANTES do refino de fronteira. Com
+    boundaryRefine > 1 o motor subdivide as celulas cortadas por n.eixo = 0, e
+    quantas sao depende da COLATITUDE MAGNETICA do vetor avaliado: medido em
+    26 bandas com refino 8, os tres vetores do incidente dao 8560, 8749 e 8182
+    pontos contra os 874 da malha base. Nenhuma funcao do pedido pode prever
+    esse numero, e por isso ele nao e reportado aqui; o motor imprime o valor
+    efetivo por processo em stderr.
+
+    Existe porque o artefato tem de carregar a resolucao com que foi produzido.
+    O incidente de 04/10/2026 so foi pego por um teste a parte; nenhum
+    resultado dizia em que resolucao havia sido integrado.
+    """
+    pedido = int(request.get("sphereBands", 0))
+    rings = int(request.get("rings", 13))
+    if pedido > 0:
+        bandas, origem = max(8, min(pedido, 4000)), "explicita (sphereBands)"
+    else:
+        bandas, origem = max(16, min(2 * rings, 60)), "herdada de rings"
+    nlat = max(8, bandas)
+    pontos = sum(max(4, math.ceil(2.0 * nlat * math.sin(math.pi * (i + 0.5) / nlat)))
+                 for i in range(nlat))
+    refino = max(1, int(request.get("boundaryRefine", 1)))
+    return {"bandasSolicitadas": pedido if pedido > 0 else 2 * rings,
+            "bandasEfetivas": bandas, "pontosBase": pontos,
+            "refinoFronteira": refino,
+            "pontosEfetivos": pontos if refino == 1 else
+                              "depende da geometria do vetor; ver stderr do motor",
+            "origem": origem,
+            "quadratura": "ponto medio em malha lat-lon alinhada ao eixo de "
+                          "coordenadas; azimutes por banda = max(4, ceil(2 nlat "
+                          "sin theta)); celulas cortadas por n.eixo = 0 "
+                          "subdivididas em refino x refino"}
 
 
 #: Teto de iterações por caminhante. Existe para o tempo de execução não
@@ -302,51 +351,342 @@ def rhat(chain_values: list[list[float]]) -> float | None:
     return max(1.0, math.sqrt(max(0.0, variance_hat / within)))
 
 
-def autocorrelation_ess(chain_values: list[list[float]], max_lag: int = 100) -> dict:
-    """Estimate the within-chain ACF and autocorrelation effective sample size.
+#: Lags guardados no artefato. A soma de Geyer percorre a ACF INTEIRA; isto
+#: limita so o que vai para o resultado.json, que com 1e5 lags por parametro
+#: ficaria inutilizavel.
+LAGS_NO_ARTEFATO = 100
 
-    The integrated autocorrelation time uses Geyer's initial-positive paired
-    sequence.  A constant or too-short ensemble is reported as unavailable
-    instead of receiving a misleadingly large ESS.
+#: Passos por tau abaixo dos quais a propria estimativa de tau nao e confiavel.
+#: Regra de bolso usual para a sequencia positiva inicial; a auditoria de
+#: 29/09/2026 observou que 40 mil passos cobriam so 14 a 20 tau.
+PASSOS_POR_TAU_MINIMO = 50.0
+
+
+def autocorrelation_ess(chain_values: list[list[float]],
+                        max_lag: int | None = None) -> dict:
+    """ACF media do enxame e ESS, com a soma de Geyer SEM truncamento.
+
+    A versao anterior cortava em 100 lags, e isso nao era uma escolha de
+    estimador: era o preco de uma ACF calculada por soma dupla em Python puro,
+    que custa O(n^2) por cadeia. Medido na segunda metade da corrida de
+    setembro, tau fica entre 1200 e 2600 passos em TODOS os parametros, e a
+    auditoria de 29/09/2026 estimou 2028, 2842 e 2192 para u, T1 e NH pelo
+    mesmo caminho. Com a ACF em lag 100 ainda valendo 0,855 para u, a soma
+    truncada devolvia tau de ordem 185 e inflava o ESS por mais de uma ordem
+    de grandeza.
+
+    Agora a ACF sai de uma FFT, o que torna a soma completa barata, e o
+    resultado carrega `passosPorTau`: com menos de 50 passos por tau a
+    propria estimativa de tau e pouco confiavel, e o campo `confiavel` diz
+    isso em vez de deixar o leitor supor. ATENCAO: `confiavel` falso sinaliza
+    pouca confiabilidade, e NAO transforma o tau devolvido em limite inferior.
+
+    Conferido contra uma realizacao de AR(1) com rho = 0,99, cujo tau vale
+    (1+rho)/(1-rho) = 199: estimou 184,6, ou seja 7 % abaixo. Isso mostra
+    subestimacao NAQUELA realizacao, nao um vies unilateral garantido, e uma
+    unica realizacao nao estabelece o comportamento do estimador. Portanto o
+    ESS daqui e ESTIMATIVA POTENCIALMENTE OTIMISTA, nao limite superior
+    certificado. Separar tres coisas que este numero nao distingue: precisao do
+    estimador, mistura do enxame e exploracao dos modos.
+
+    `sequenciaTerminou` falso significa que os pares nunca ficaram negativos
+    dentro da cadeia, isto e, a soma foi interrompida pelo FIM DA CADEIA e nao
+    pelo criterio de Geyer. Nesse caso o tau nao foi estimado, foi cortado.
+
+    `max_lag` fica aceito para nao quebrar quem chama com ele, e limita apenas
+    o trecho de ACF guardado.
+
+    O limiar de 50 passos por tau vive em PASSOS_POR_TAU_MINIMO; se mudar la,
+    mudar esta frase tambem. O numero esta escrito a mao de proposito: aplicar
+    o operador de formatacao ao literal faz dele uma EXPRESSAO, e a funcao fica
+    sem docstring, com __doc__ igual a None. Foi o que aconteceu aqui antes.
     """
+    import numpy as _np
+
+    vazio = {"autocorrelation": [], "tau": None, "ess": None,
+             "passosPorTau": None, "confiavel": False}
     if not chain_values:
-        return {"autocorrelation": [], "tau": None, "ess": None}
+        return vazio
     length = min(map(len, chain_values))
     if length < 4:
-        return {"autocorrelation": [1.0], "tau": None, "ess": None}
-    chains = [values[-length:] for values in chain_values]
-    lag_limit = min(max_lag, length - 1)
-    correlations = []
-    for values in chains:
-        mean = statistics.fmean(values)
-        centered = [value - mean for value in values]
-        variance = statistics.fmean(value * value for value in centered)
-        if variance <= 0.0:
-            continue
-        correlations.append([
-            sum(centered[index] * centered[index + lag]
-                for index in range(length - lag)) /
-            ((length - lag) * variance)
-            for lag in range(lag_limit + 1)
-        ])
-    if not correlations:
-        return {"autocorrelation": [1.0], "tau": None, "ess": None}
-    acf = [statistics.fmean(values[lag] for values in correlations)
-           for lag in range(lag_limit + 1)]
+        return dict(vazio, autocorrelation=[1.0])
+    x = _np.asarray([list(values[-length:]) for values in chain_values],
+                    dtype=float)
+    # cadeias paradas nao entram: variancia zero nao tem ACF definida
+    movem = x.var(axis=1) > 0.0
+    if not movem.any():
+        return dict(vazio, autocorrelation=[1.0])
+    x = x[movem]
+
+    tamanho = 1
+    while tamanho < 2 * length:
+        tamanho *= 2
+    centrado = x - x.mean(axis=1, keepdims=True)
+    espectro = _np.fft.rfft(centrado, n=tamanho, axis=1)
+    acf = _np.fft.irfft(espectro * _np.conj(espectro), n=tamanho,
+                        axis=1)[:, :length].real
+    acf /= acf[:, :1]
+    media = acf.mean(axis=0)
+
+    # sequencia positiva inicial de Geyer, sobre a ACF inteira
     tau = 1.0
+    terminou = False      # a sequencia positiva acabou sozinha, como deve
     lag = 1
-    while lag < len(acf):
-        pair = acf[lag]
-        if lag + 1 < len(acf):
-            pair += acf[lag + 1]
-        if pair <= 0.0:
+    while lag < length:
+        par = media[lag] + (media[lag + 1] if lag + 1 < length else 0.0)
+        if par <= 0.0:
+            terminou = True
             break
-        tau += 2.0 * pair
+        tau += 2.0 * par
         lag += 2
-    tau = max(1.0, tau)
-    total = len(chains) * length
-    return {"autocorrelation": acf, "tau": tau,
-            "ess": min(float(total), total / tau)}
+    tau = max(1.0, float(tau))
+    total = x.shape[0] * length
+    por_tau = length / tau
+    guardar = min(int(max_lag) if max_lag else LAGS_NO_ARTEFATO, length - 1)
+    return {"autocorrelation": [float(v) for v in media[:guardar + 1]],
+            "tau": tau, "ess": min(float(total), total / tau),
+            "passosPorTau": float(por_tau),
+            "sequenciaTerminou": bool(terminou),
+            "confiavel": bool(terminou and por_tau >= PASSOS_POR_TAU_MINIMO)}
+
+
+#: Mensagens com que o motor recusa um vetor alegando razao FISICA, de
+#: `run_fit_worker` em engine/main.cpp. ELAS NAO VALEM COMO PROBABILIDADE ZERO.
+#: Uma recusa so pode ser lida como probabilidade nula quando corresponde a uma
+#: restricao fisica EXPLICITA do alvo, e as restricoes explicitas deste alvo
+#: estao todas em `FitProblem.in_prior`: caixa, compacidade abaixo de 0,985,
+#: banda de massa, ordenacao de simetria, fisicalidade do beaming. Logo um vetor
+#: que passou pela priori e foi recusado pelo motor revela DESACORDO entre a
+#: priori declarada e o dominio do motor, que e defeito e nao medida. A lista
+#: serve para nomear a causa no relato, nao para absolver a ocorrencia.
+#:
+#: Verificado em 06/10/2026, para o caso que mais preocupava: a priori checa
+#: `u >= 0.985` na compacidade amostrada e o motor recheca em `2 C M / R` com a
+#: massa reconstruida. Em 1,2 milhao de vetores de fronteira, seis raios de 7,5 a
+#: 13 km, o percurso de ida e volta NUNCA cruzou o limite. As duas constantes sao
+#: o mesmo double, 1,4766250385.
+MOTIVOS_FISICOS = (
+    "parameters are outside physical bounds",
+    "compactness is outside physical bounds",
+    "received a negative nH",
+)
+
+
+def gama_de_tres_cumulantes(k1: float, k2: float, k3: float):
+    """Gamma DESLOCADA casada em tres cumulantes: (forma, escala, deslocamento).
+
+    E o ajuste classico para soma de Gammas com escalas diferentes, que e o que a
+    posterior do fundo latente e. Com k3 <= 0 cai para o casamento em dois
+    cumulantes, sem deslocamento. Validada contra 200 mil sorteios da soma
+    exata: distancia de Kolmogorov-Smirnov 0,0012 a 0,0027 contra piso de ruido
+    0,00304, logo indistinguivel da exata nessa medida. Ver
+    scripts/marginaliza_fundo.py.
+    """
+    if not (k2 > 0.0):
+        return 1.0, 0.0, k1
+    if k3 <= 0.0:
+        return k1 * k1 / k2, k2 / k1, 0.0
+    escala = k3 / (2.0 * k2)
+    forma = 4.0 * k2 ** 3 / (k3 * k3)
+    return forma, escala, k1 - forma * escala
+
+
+def densidade_gama(b, forma: float, escala: float, deslocamento: float):
+    """Densidade da Gamma deslocada, em array. Zero onde o suporte nao chega."""
+    import numpy as _np
+    if not (escala > 0.0):
+        return _np.zeros_like(_np.asarray(b, float))
+    x = (_np.asarray(b, float) - deslocamento) / escala
+    saida = _np.zeros_like(x)
+    bom = x > 0.0
+    saida[bom] = _np.exp((forma - 1.0) * _np.log(x[bom]) - x[bom]
+                         - math.lgamma(forma) - math.log(escala))
+    return saida
+
+
+class FalhaDoMotor(RuntimeError):
+    """Interrompe a corrida na primeira falha do motor que nao se recuperou.
+
+    Nao herda de RuntimeError por acidente: `FitProblem.evaluate` captura
+    RuntimeError do protocolo do worker, e esta excecao tem que ATRAVESSAR esse
+    except, entao ele a relanca explicitamente.
+    """
+
+
+class DiagnosticoDoMotor:
+    """Separa PROPOSTA FORA DO SUPORTE de FALHA DO MOTOR, e nao deixa a segunda
+    virar rejeicao.
+
+    HISTORICO DESTA CLASSE, porque a primeira versao estava errada. Antes dela,
+    tres causas devolviam o mesmo `-inf` sem registro: `in_prior` falso, o motor
+    devolvendo `{"status":"error"}` e excecao do lado do Python. A primeira
+    correcao contou as tres em separado e passou a abortar acima de um teto, 1%
+    das avaliacoes e nunca antes de 20 falhas. O revisor recusou esse desenho, e
+    com razao:
+
+        falha numerica nao pode ser rejeicao de proposta ATE o teto. Cada
+        rejeicao dessas ja altera o nucleo de transicao e pode excluir uma
+        regiao valida. O teto controla alerta, nao torna a cadeia correta
+        abaixo dele.
+
+    A politica agora e:
+
+      1. falha do motor dispara RECUPERACAO DETERMINISTICA: o mesmo vetor e
+         reavaliado num worker NOVO. O motor e deterministico, verificado, de
+         modo que a reavaliacao ou devolve o mesmo resultado, e entao a falha era
+         do estado do processo, ou devolve o mesmo erro, e entao a falha e do
+         vetor. Nada e perturbado, nada e substituido: recuperar nao pode mudar o
+         alvo.
+      2. se a recuperacao nao der avaliacao valida, a corrida GRAVA CHECKPOINT E
+         PARA, na primeira ocorrencia. Nao existe teto para isso.
+      3. recusa FISICA do motor dentro da priori tambem para, porque as
+         restricoes explicitas do alvo estao todas em `in_prior`: se o motor
+         recusa o que a priori aceitou, a priori declarada e o dominio do modelo
+         discordam, e qual dos dois corrigir e decisao humana.
+      4. o teto sobrevive apenas como ALERTA sobre falhas RECUPERADAS, que nao
+         enviesam a cadeia mas denunciam processo doente.
+    """
+
+    #: Reavaliacoes do MESMO vetor em worker novo antes de desistir.
+    TENTATIVAS_DE_RECUPERACAO = 1
+
+    def __init__(self, tentativas: int = TENTATIVAS_DE_RECUPERACAO,
+                 alerta_de_recuperadas: float = 0.001, guardar: int = 5):
+        self.tentativas = max(0, int(tentativas))
+        self.alerta_de_recuperadas = float(alerta_de_recuperadas)
+        self.guardar = int(guardar)
+        self.avaliacoes = 0
+        self.fora_do_suporte = 0
+        self.recuperadas = 0
+        self.nao_recuperadas = 0
+        self.recusa_fisica = 0
+        self.mensagens: dict[str, int] = {}
+        self.excecoes: dict[str, int] = {}
+        self.exemplos: list[dict] = []
+        self.parada: dict | None = None
+        self._anunciadas: set[str] = set()
+        self._alertou = False
+        self._trava = threading.Lock()
+
+    # -- registro ---------------------------------------------------------
+    def conta_avaliacao(self) -> None:
+        with self._trava:
+            self.avaliacoes += 1
+
+    def fora(self, valores) -> None:
+        with self._trava:
+            self.fora_do_suporte += 1
+
+    def tentativa_falhou(self, valores, causa: str, detalhe: str,
+                         tentativa: int, nomes=None) -> None:
+        """Uma tentativa falhou. Ainda pode haver recuperacao; nao decide nada."""
+        with self._trava:
+            if causa == "excecao":
+                tipo = detalhe.split(":", 1)[0]
+                self.excecoes[tipo] = self.excecoes.get(tipo, 0) + 1
+                chave = tipo
+            else:
+                self.mensagens[detalhe] = self.mensagens.get(detalhe, 0) + 1
+                chave = detalhe
+            self._guarda(valores, causa, detalhe, nomes, tentativa)
+            anuncia = chave not in self._anunciadas
+            if anuncia:
+                self._anunciadas.add(chave)
+        if anuncia:
+            print("AVISO: o motor falhou na tentativa %d (%s): %s"
+                  % (tentativa, causa, detalhe), file=sys.stderr, flush=True)
+
+    def recuperada(self, tentativas_gastas: int) -> None:
+        with self._trava:
+            self.recuperadas += 1
+            self.pior_recuperacao = max(getattr(self, "pior_recuperacao", 0),
+                                        int(tentativas_gastas))
+            fracao = self.recuperadas / max(1, self.avaliacoes)
+            alerta = (not self._alertou
+                      and fracao > self.alerta_de_recuperadas
+                      and self.recuperadas >= 10)
+            if alerta:
+                self._alertou = True
+        if alerta:
+            print("AVISO: %d de %d avaliacoes precisaram de reavaliacao em worker "
+                  "novo (%.3f%%). A cadeia nao fica enviesada por isso, porque o "
+                  "valor usado e o do motor, mas a taxa indica processo doente."
+                  % (self.recuperadas, self.avaliacoes, 100.0 * fracao),
+                  file=sys.stderr, flush=True)
+
+    def sem_recuperacao(self, valores, causa: str, detalhe: str, nomes=None):
+        """Nao houve avaliacao valida. A corrida PARA aqui, na primeira vez."""
+        fisica = any(m in detalhe for m in MOTIVOS_FISICOS)
+        with self._trava:
+            self.nao_recuperadas += 1
+            if fisica:
+                self.recusa_fisica += 1
+            self.parada = {
+                "causa": causa, "detalhe": detalhe,
+                "recusa_fisica_alegada": fisica,
+                "vetor": dict(zip(list(nomes), [float(v) for v in valores]))
+                         if nomes else None,
+                "valores": [float(v) for v in valores],
+                "tentativas": self.tentativas + 1,
+                "avaliacoes_ate_aqui": self.avaliacoes,
+            }
+        if fisica:
+            motivo = (
+                "O motor alega limite FISICO, mas isso nao vale como "
+                "probabilidade zero: as restricoes explicitas deste alvo estao "
+                "todas em in_prior, e este vetor passou por ela. Ou a priori "
+                "admite o que o modelo nao cobre, e entao a priori tem de "
+                "declarar a restricao, ou o limite e do motor e nao do alvo, e "
+                "entao ele tem de ser afrouxado ou documentado como limitacao.")
+        else:
+            motivo = (
+                "Devolver -inf aqui excluiria da cadeia uma regiao que talvez "
+                "tenha probabilidade, e o nucleo de transicao ja teria sido "
+                "alterado pela rejeicao.")
+        return FalhaDoMotor(
+            "o motor nao produziu avaliacao valida para um vetor DENTRO da "
+            "priori, nem apos %d reavaliacao(oes) em worker novo. Causa: %s. "
+            "Detalhe: %s. %s A corrida para aqui, com checkpoint gravado."
+            % (self.tentativas, causa, detalhe, motivo))
+
+    def _guarda(self, valores, causa, detalhe, nomes, tentativa) -> None:
+        if len(self.exemplos) >= self.guardar:
+            return
+        registro = {"causa": causa, "detalhe": detalhe, "tentativa": tentativa,
+                    "valores": [float(v) for v in valores]}
+        if nomes:
+            registro["vetor"] = dict(zip(list(nomes), [float(v) for v in valores]))
+        self.exemplos.append(registro)
+
+    # -- relato -----------------------------------------------------------
+    def relatorio(self) -> dict:
+        with self._trava:
+            return {
+                "avaliacoes": self.avaliacoes,
+                "foraDoSuporte": self.fora_do_suporte,
+                "falhasRecuperadas": self.recuperadas,
+                "piorRecuperacao": getattr(self, "pior_recuperacao", 0),
+                "falhasNaoRecuperadas": self.nao_recuperadas,
+                "recusaFisicaAlegada": self.recusa_fisica,
+                "fracaoRecuperada": self.recuperadas / max(1, self.avaliacoes),
+                "tentativasDeRecuperacao": self.tentativas,
+                "mensagensDoMotor": dict(self.mensagens),
+                "excecoes": dict(self.excecoes),
+                "exemplos": list(self.exemplos),
+                "parada": self.parada,
+                "politica": (
+                    "falha do motor NAO e rejeicao de proposta. Ela dispara "
+                    "reavaliacao deterministica do MESMO vetor em worker novo; "
+                    "sem avaliacao valida, a corrida grava checkpoint e para na "
+                    "primeira ocorrencia. Nao ha teto abaixo do qual a falha "
+                    "seja aceitavel. Recusa fisica dentro da priori tambem para, "
+                    "porque as restricoes explicitas do alvo estao em in_prior."),
+                "nota": ("foraDoSuporte e a unica rejeicao legitima; "
+                         "falhasRecuperadas nao enviesam a cadeia, porque o "
+                         "valor usado e o do motor, e so denunciam processo "
+                         "doente; falhasNaoRecuperadas e sempre 0 numa corrida "
+                         "que terminou."),
+            }
 
 
 class FitProblem:
@@ -355,6 +695,12 @@ class FitProblem:
                  background: list[tuple[float, float]] | None = None):
         self.request = request
         self.metadata = metadata or {}
+        #: Contabilidade das causas de `-inf`. Existe por padrao: antes, falha do
+        #: motor e proposta fora da priori eram indistinguiveis, e o relatorio
+        #: nao dizia se alguma regiao fora excluida por defeito numerico.
+        self.diagnostico = DiagnosticoDoMotor(
+            tentativas=int(request.get("engineRecoveryAttempts",
+                                       DiagnosticoDoMotor.TENTATIVAS_DE_RECUPERACAO)))
         self.period = float(request["period"])
         self.distance = float(request["distance"])
         #: Distancia livre (kpc) com priori uniforme distanceRange; padrao: fixa.
@@ -393,9 +739,56 @@ class FitProblem:
         # por padrao: o dipolo coerente e o certo. Existe para reproduzir as
         # corridas publicadas antes de 01/10/2026.
         self.field_nearest_pole = bool(request.get("fieldNearestPole", False))
+        # Resolucao da esfera, independente dos spots. Zero mantem a regra antiga.
+        self.sphere_bands = int(request.get("sphereBands", 0))
+        # Refino das celulas cortadas pelas fronteiras dos lobos termicos.
+        self.boundary_refine = int(request.get("boundaryRefine", 1))
         # Modo de camadas: contínuo de corpo negro + feixe da atmosfera, em toda a
         # superfície (atmosfera fina sobre condensada, à la Hambaryan).
         self.layered_atmosphere = bool(request.get("layeredAtmosphere", False))
+        #: OFFSET DE FASE OBSERVACIONAL, em CICLOS, repassado ao motor. E o
+        #: operador de alinhamento EXPLICITO, que substitui o uso de `magAzim`
+        #: para esse fim. `magAzim` e um parametro FISICO e, medido, nao e um
+        #: operador de fase exato: rolar a grade e mover o azimute diferem por
+        #: 0,061 em ln L e 3,0e-04 por celula, porque o azimute move a
+        #: configuracao magnetica dentro da malha, que e fixa no referencial da
+        #: estrela. O offset explicito nao move nada dentro da malha, e por isso
+        #: e exato em deslocamento inteiro.
+        #:
+        #: Convencao MEDIDA, nao suposta (docs/valida_offset.json):
+        #:     m_offset[p] = m_0[p + offset . N]
+        #: isto e, offset positivo move o padrao para bins MENORES, por
+        #: offset . N bins, com razao 1,000000.
+        #:
+        #: A EXPOSICAO NAO E DESLOCADA: ela fica nas fases observadas.
+        self.observation_phase_offset = float(
+            request.get("observationPhaseOffsetCycles", 0.0))
+        #: QUADRATURA DE FASE: M sub-amostras por bin OBSERVADO. O motor e
+        #: pedido com `phase_bins * M` fases e a pontuacao faz a MEDIA de cada
+        #: grupo de M antes de comparar com o dado, que continua em phase_bins.
+        #:
+        #: POR QUE ISTO VIVE AQUI, e nao no lancador. O alvo escolhido usa M = 5
+        #: (docs/frenteA_fechada.json). Se a reotimizacao avaliasse com M = 1 ela
+        #: acharia o maximo de uma FUNCAO DIFERENTE da que os pilotos amostram, e
+        #: eu havia escrito exatamente isso no lancador da frente C, por engano.
+        #: Pondo M no adaptador, reotimizador e amostrador herdam a convencao.
+        #:
+        #: Medido: o ponto medio, M = 1, erra 0,63 nas diferencas de ln L contra
+        #: M = 15, e M = 5 erra 0,0908.
+        self.media_de_fase = max(1, int(request.get("phaseAverage", 1)))
+        if self.media_de_fase % 2 == 0 and self.media_de_fase > 1:
+            raise ValueError(
+                "phaseAverage = %d e PAR, e a convencao de centro de bin exige "
+                "M IMPAR: o centro do bin grosso cai na fronteira de dois finos "
+                "e as fases pedidas nao sao membros da grade fina. Verificado "
+                "com fracoes para M de 1 a 8" % self.media_de_fase)
+        #: Digitos significativos da saida do motor. None mantem o padrao dele,
+        #: 10, e portanto a saida de sempre. Vale 17 nas VALIDACOES, onde o piso
+        #: de impressao de 1e-9 relativo seria confundido com diferenca de
+        #: conta: medido, duas rotas que calculam o mesmo double por ordens
+        #: diferentes imprimem valores separados por um ou dois quanta do ultimo
+        #: digito.
+        self.output_precision = request.get("outputPrecision")
         self.instrument = str(request["instrument"])
         # Uma resposta enviada com os dados vence o catálogo: ela é *daquela*
         # observação, enquanto o perfil do manifesto é de uma configuração
@@ -433,6 +826,13 @@ class FitProblem:
                           for ie in range(self.energy_bins)
                           if self.energy_min + (ie + 0.5) * self.energy_width
                           < self.energy_fit_max]
+        #: Quais bins de ENERGIA entram, que e o que o alvo marginalizado precisa:
+        #: ele integra por canal de energia sobre todas as fases, e _fit_bins
+        #: recorta bins de energia inteiros, nunca fases isoladas.
+        self._bins_de_energia_ajustados = [
+            ie for ie in range(self.energy_bins)
+            if self.energy_min + (ie + 0.5) * self.energy_width
+            < self.energy_fit_max]
         self.observed = [0] * (self.phase_bins * self.energy_bins)
         selected = 0
         phase_reference = float(request.get("phaseReference", 0.0))
@@ -452,6 +852,9 @@ class FitProblem:
         # Injeção de um grid JÁ combinado (co-adição de observações): substitui o
         # observado, a exposição e o fundo por arrays prontos, mantendo toda a
         # verossimilhança intacta. É como se fosse uma observação só, mais longa.
+        #: Exposicao por fase MEDIDA, quando o produto a traz; None usa a
+        #: formula analitica. Ver `tempo_representado`.
+        self.exposicao_por_fase = None
         prepared = request.get("preparedDataNpz")
         if prepared:
             import numpy as _np
@@ -464,6 +867,108 @@ class FitProblem:
                 raise ValueError("preparedDataNpz: grid observado com forma errada")
             if len(self.background) != self.energy_bins:
                 raise ValueError("preparedDataNpz: fundo com número de bins errado")
+            # O produto v2 traz os PESOS e as CONTAGENS BRUTAS de cada par
+            # observacao-canal por bin, o que permite escolher a priori do fundo
+            # latente aqui, na definicao do alvo, em vez de embuti-la no dado.
+            # Ver scripts/preparar_fundo_v2.py e scripts/priori_do_fundo.py.
+            if "fundo_pesos" in data.files:
+                self.fundo_pesos = _np.asarray(data["fundo_pesos"], float)
+                self.fundo_contagens = _np.asarray(data["fundo_contagens"], float)
+                self.fundo_deslocamento = _np.asarray(data["fundo_deslocamento"], int)
+                if "fundo_largura_do_canal" not in data.files:
+                    raise ValueError(
+                        "o produto traz fundo_pesos mas nao "
+                        "fundo_largura_do_canal, e a priori proporcional a "
+                        "largura precisa dela; regere com "
+                        "scripts/preparar_fundo_v2.py")
+                self.fundo_largura_do_canal = _np.asarray(
+                    data["fundo_largura_do_canal"], float)
+                if "fundo_canal_do_termo" in data.files:
+                    self.fundo_canal_do_termo = _np.asarray(
+                        data["fundo_canal_do_termo"], int)
+                self.produto_do_fundo = str(prepared)
+                self.versao_do_produto = (str(data["versao"])
+                                          if "versao" in data.files else "1")
+            # EXPOSICAO POR FASE MEDIDA, dos quadros (extensao EXPOSUnn), em vez
+            # da formula analitica de `represented_time`. A formula supoe
+            # cobertura uniforme a menos do ultimo ciclo parcial; os quadros
+            # dizem outra coisa. Medido: a correcao desloca diferencas de ln L
+            # em ate 1,0105, chegando a 15,1 por cento numa comparacao de
+            # perfis, e a amplitude por OBSERVACAO chega a 1,23 por cento,
+            # contra 0,17 por cento no coadicionado, porque as amplitudes
+            # individuais se cancelam parcialmente ao somar com alinhamentos
+            # diferentes. Logo isto pesa MAIS na forma por observacao.
+            if "exposicao_por_fase" in data.files:
+                pe = _np.asarray(data["exposicao_por_fase"], float)
+                if pe.shape != (self.phase_bins,):
+                    raise ValueError(
+                        "exposicao_por_fase com %d valores, e a grade tem %d "
+                        "bins de fase" % (pe.size, self.phase_bins))
+                if not _np.all(pe > 0.0):
+                    raise ValueError("exposicao_por_fase com bin nao positivo: "
+                                     "um bin sem exposicao nao tem modelo")
+                # A soma TEM de bater com a exposicao, senao uma das duas esta
+                # em outra convencao e o modelo sai reescalado em silencio.
+                razao = float(pe.sum()) / self.exposure
+                if abs(razao - 1.0) > 1.0e-6:
+                    raise ValueError(
+                        "soma da exposicao_por_fase e %.6f vezes a exposicao; "
+                        "as duas precisam estar na mesma convencao" % razao)
+                self.exposicao_por_fase = [float(x) for x in pe]
+        # ALVO NOVO, com o fundo MARGINALIZADO, selecionavel; o alvo antigo,
+        # com o fundo fixo, segue como CONTROLE CONDICIONAL. A decisao de
+        # definir os dois e do revisor, 06/10/2026. O que muda e o tratamento do
+        # fundo, nao as contagens observadas.
+        #
+        # CONVENCOES DE NORMALIZACAO, que NAO sao comparaveis entre os alvos:
+        #   controle: ln L = soma_b [ n_b ln mu_b - mu_b ], sem o termo ln n_b!
+        #   novo:     ln L = soma_e ln integral pi_e(b) prod_p Poisson(...) db,
+        #             tambem sem ln n!, e com pi_e normalizada na janela de
+        #             integracao
+        # Os dois omitem constantes diferentes. Dentro de um alvo elas cancelam
+        # na comparacao entre pontos; ENTRE alvos o valor absoluto de ln L nao
+        # significa nada.
+        self.marginalizar_fundo = bool(request.get("marginalizeBackground", False))
+        #: Forma da priori do fundo latente, em pseudo-contagens por keV por
+        #: observacao. PROPORCIONAL A LARGURA do canal, que e a unica escolha
+        #: coerente sob reagrupamento em energia: somar canais adjacentes soma as
+        #: formas e da a0 vezes a largura do grupo, de modo que a afirmacao a
+        #: priori depende so do intervalo. Uma priori fixa POR CANAL seria
+        #: afirmacao sobre a grade, e muda a posterior ao reagrupar, medido em
+        #: 3,89 por cento num intervalo de 30 canais. Ver
+        #: scripts/priori_do_fundo.py.
+        #: CONVENCAO FIDUCIAL, escolhida pelo revisor em 06/10/2026:
+        #: a0 = 0,01 por keV, com beta = 0. O fundamento e OPERACIONAL, nao
+        #: fisico: qualquer a0 > 0 evita componentes posteriores improprias, e
+        #: 0,01 custou 3e-7 em lnL e 0,0019 por cento no fundo do bin 39 nos
+        #: casos medidos. a0 = 0,001 e 0,1 ficam como sensibilidades declaradas.
+        #:
+        #: DUAS DISTINCOES QUE O REVISOR PEDIU PARA REGISTRAR AQUI:
+        #:
+        #: 1. POSTERIOR PROPRIA NAO TORNA A PRIORI PROPRIA. Com beta = 0 a
+        #:    priori lambda^(a0 w - 1) continua impropria, e portanto a
+        #:    normalizacao da posterior fica definida a menos de uma constante
+        #:    arbitraria. Consequencia pratica: EVIDENCIA ABSOLUTA e FATOR DE
+        #:    BAYES entre modelos nao podem ser usados sem resolver essa
+        #:    constante. Pesos de REGIOES dentro do mesmo alvo normalizado sao
+        #:    outra questao, e seguem validos, porque a constante cancela na
+        #:    razao. A finitude da normalizacao esta demonstrada em
+        #:    docs/normalizacao_do_alvo_v2.md.
+        #:
+        #: 2. CONTAGEM ZERO NAO DEMONSTRA FUNDO EXATAMENTE NULO. A massa pontual
+        #:    em zero era convencao do limite a0 -> 0. A forma positiva pequena a
+        #:    substitui, mas ainda atribui FORTE CONCENTRACAO perto de zero: com
+        #:    a0 = 0,01 a forma de um canal vazio e 4,8e-5, cuja media e 4,8e-5
+        #:    contagens. Continuidade numerica em a0 nao demonstra adequacao
+        #:    fisica dessa concentracao.
+        self.fundo_a0 = float(request.get("backgroundPriorPerKeV", 0.01))
+        #: Taxa da priori Gama. FIXA EM ZERO por convencao declarada: e a unica
+        #: escolha em que a media a posteriori reproduz a taxa medida quando
+        #: a0 -> 0, porque beta encolhe o fundo por 1/(1+beta) uniformemente.
+        #: Exposta para que a convencao fique visivel e auditavel, nao para ser
+        #: variada sem justificativa propria.
+        self.fundo_beta = float(request.get("backgroundPriorRate", 0.0))
+        self.fundo_nos = int(request.get("backgroundQuadratureNodes", 64))
         self.absorption_table = ABSORPTION if ABSORPTION.is_file() else None
         self.nh = max(0.0, float(request.get("nh", 0.0)))
         self.nh_max = max(self.nh, float(request.get("nhMax", 5.0)))
@@ -981,10 +1486,18 @@ class FitProblem:
                    "--samples", "81", "--max-images", str(self.max_images),
                    "--energy-min", str(self.energy_min), "--energy-max", str(self.energy_max),
                    "--energy-bins", str(self.energy_bins),
-                   "--time-bins", str(self.phase_bins), "--instrument", self.instrument,
+                   "--time-bins", str(self.phase_bins * self.media_de_fase),
+                   "--instrument", self.instrument,
                    "--instrument-label", str(p["label"]), "--time-resolution-us",
                    str(p.get("time_resolution_us", 0.0)), "--dead-time-us",
                    str(p.get("dead_time_us", 0.0))])
+        if self.output_precision is not None:
+            command.extend(["--output-precision", str(int(self.output_precision))])
+        if self.observation_phase_offset != 0.0:
+            # Passado SO quando nao nulo, para que o caso sem offset produza o
+            # mesmo comando de antes e o mesmo resultado bit a bit.
+            command.extend(["--observation-phase-offset",
+                            repr(self.observation_phase_offset)])
         if self.absorption_table is not None:
             command.extend(["--absorption", str(self.absorption_table),
                             "--nh", str(self.nh)])
@@ -1082,6 +1595,10 @@ class FitProblem:
             command.append("--line-cyclotron")
         if self.field_peaking is not None:
             command.extend(["--field-peaking", str(float(self.field_peaking))])
+        if self.boundary_refine > 1:
+            command.extend(["--boundary-refine", str(self.boundary_refine)])
+        if self.sphere_bands > 0:
+            command.extend(["--sphere-bands", str(self.sphere_bands)])
         if self.field_nearest_pole:
             command.append("--field-nearest-pole")
         if self.field_gr:
@@ -1158,22 +1675,168 @@ class FitProblem:
         """Quantas posições os pontos ocupam no vetor de parâmetros."""
         return 3 * self.spot_count + max(0, self.spot_count - 1)
 
+    def prepara_fundo_marginal(self) -> None:
+        """Cumulantes de pi_e e os nos da quadratura, UMA vez por problema.
+
+        pi_e e a posterior do fundo latente no bin e, derivada das contagens
+        brutas e dos pesos:
+
+            b_e = soma_j a_j lambda_j ,  lambda_j | N_j ~ Gamma(N_j + a0 w_j, 1)
+
+        Isto NAO e uma Gamma: as escalas a_j diferem entre observacoes e nos
+        canais de borda. Os cumulantes saem fechados, e a Gamma DESLOCADA casada
+        em tres deles fica no piso de ruido de Monte Carlo com 200 mil sorteios
+        da soma exata. Ver scripts/marginaliza_fundo.py.
+        """
+        import numpy as _np
+        if getattr(self, "_fundo_pronto", False):
+            return
+        if not hasattr(self, "fundo_pesos"):
+            raise ValueError(
+                "marginalizeBackground pede um preparedDataNpz que traga "
+                "fundo_pesos e fundo_contagens; o produto v1 nao os tem. Gere o "
+                "v2 com scripts/preparar_fundo_v2.py.")
+        desl = self.fundo_deslocamento
+        if len(desl) != self.energy_bins + 1:
+            raise ValueError(
+                "fundo_deslocamento traz %d limites para %d bins de energia"
+                % (len(desl), self.energy_bins))
+        # A priori entra como forma PROPORCIONAL A LARGURA do canal, a0 * w_j,
+        # a unica coerente sob reagrupamento em energia; a largura vem do
+        # produto preparado, nao de um valor tipico.
+        self._fundo_k = []
+        for ie in range(self.energy_bins):
+            a = self.fundo_pesos[desl[ie]:desl[ie + 1]]
+            n = self.fundo_contagens[desl[ie]:desl[ie + 1]]
+            w = self.fundo_largura_do_canal[desl[ie]:desl[ie + 1]]
+            forma = n + self.fundo_a0 * w
+            # PROPRIEDADE EXIGIDA, nao suposta: a posterior de cada componente e
+            # Gamma(forma, taxa 1 + beta), que so e propria com forma > 0. Com
+            # a0 = 0 os 336 canais de contagem zero, que carregam 14,1 por cento
+            # do peso total e 48 por cento do peso do bin 39, dariam forma zero,
+            # e Gamma(0, 1) nao e integravel na origem. Entao isto e erro, e nao
+            # aviso: um alvo com componente improprio nao pode rodar em silencio.
+            if forma.size and float(forma.min()) <= 0.0:
+                vazios = int((n == 0).sum())
+                raise ValueError(
+                    "o bin de energia %d tem %d componente(s) de forma nao "
+                    "positiva, logo posterior IMPROPRIA: %d dos %d canais tem "
+                    "contagem zero e a0 = %g nao os corrige. Use a0 > 0; a "
+                    "convencao fiducial e 0,01 por keV."
+                    % (ie, int((forma <= 0.0).sum()), vazios, forma.size,
+                       self.fundo_a0))
+            escala = 1.0 / (1.0 + self.fundo_beta)
+            k1 = float((a * forma).sum()) * escala
+            k2 = float((a ** 2 * forma).sum()) * escala ** 2
+            k3 = float(2.0 * (a ** 3 * forma).sum()) * escala ** 3
+            self._fundo_k.append((k1, k2, k3))
+        x, w = _np.polynomial.legendre.leggauss(self.fundo_nos)
+        self._gl_x, self._gl_w = x, w
+        # Nos e pesos por bin, no intervalo [max(0, k1-8s), k1+12s]: o integrando
+        # e suave e concentrado, e a cauda direita e mais longa porque a soma de
+        # Gammas e assimetrica a direita.
+        nos = _np.zeros((self.energy_bins, self.fundo_nos))
+        pesos = _np.zeros_like(nos)
+        densidade = _np.zeros_like(nos)
+        for ie, (k1, k2, k3) in enumerate(self._fundo_k):
+            s = math.sqrt(k2) if k2 > 0 else 0.0
+            lo, hi = max(0.0, k1 - 8.0 * s), k1 + 12.0 * s
+            if not (hi > lo):
+                lo, hi = max(0.0, k1 * 0.5), max(1e-30, k1 * 1.5)
+            nos[ie] = 0.5 * (hi - lo) * x + 0.5 * (hi + lo)
+            pesos[ie] = 0.5 * (hi - lo) * w
+            forma, escala, desvio = gama_de_tres_cumulantes(k1, k2, k3)
+            densidade[ie] = densidade_gama(nos[ie], forma, escala, desvio)
+        # pi normalizada NA JANELA: constante em theta, logo cancela entre
+        # pontos, mas e declarada porque muda o valor absoluto de ln L.
+        norma = (pesos * densidade).sum(axis=1, keepdims=True)
+        self._fundo_nos = nos
+        self._fundo_peso_pi = (pesos * densidade) / _np.maximum(norma, 1e-300)
+        self._fundo_norma_da_janela = norma.ravel().tolist()
+        self._fundo_pronto = True
+
+    def _score_marginal(self, grid, represented_time, return_model: bool = False):
+        """ln L com o fundo MARGINALIZADO, uma integral por canal de energia.
+
+        O mesmo B[e] entra nos 32 bins de fase, logo tem de ser integrado UMA
+        VEZ sobre a verossimilhanca conjunta dessas fases. Integrar celula por
+        celula criaria 32 fundos independentes artificiais e estreitaria a
+        incerteza por um fator espurio de raiz de 32.
+        """
+        import numpy as _np
+        self.prepara_fundo_marginal()
+        t = _np.asarray(represented_time, float)            # (fases,)
+        passo = self.energy_width * t                       # (fases,)
+        S = _np.asarray(grid, float)                        # (fases, energias)
+        n = _np.asarray(self.observed, float).reshape(self.phase_bins,
+                                                      self.energy_bins)
+        total = 0.0
+        por_bin = []
+        for ie in self._bins_de_energia_ajustados:
+            b = self._fundo_nos[ie]                         # (nos,)
+            mu = (S[:, ie][None, :] + b[:, None]) * passo[None, :]
+            mu = _np.maximum(mu, 1.0e-300)
+            ll = (n[:, ie][None, :] * _np.log(mu) - mu).sum(axis=1)
+            pico = float(ll.max())
+            integral = float((self._fundo_peso_pi[ie] * _np.exp(ll - pico)).sum())
+            valor = pico + math.log(max(integral, 1.0e-300))
+            total += valor
+            por_bin.append(valor)
+        if not return_model:
+            return total
+        # Para os graficos: o modelo no fundo ESPERADO a posteriori, que e o
+        # valor central de pi_e. Nao e o modelo que maximiza a integral.
+        esperado = [max(1.0e-14, (grid[ip][ie] + self._fundo_k[ie][0])
+                        * self.energy_width * represented_time[ip])
+                    for ip in range(self.phase_bins)
+                    for ie in range(self.energy_bins)]
+        return total, esperado
+
+    def tempo_representado(self) -> list[float]:
+        """Segundos de tempo vivo em cada bin de fase.
+
+        Duas receitas, e a MEDIDA vence quando existe. A analitica supoe
+        cobertura uniforme a menos do ultimo ciclo parcial, o que seria exato
+        se a observacao fosse um intervalo continuo; ela nao e, porque os
+        quadros tem FRACEXP e as GTIs recortam. A medida vem da extensao
+        EXPOSUnn, quadro por quadro, que e mais fina que as GTIs.
+        """
+        if getattr(self, "exposicao_por_fase", None) is not None:
+            return list(self.exposicao_por_fase)
+        complete_cycles = math.floor(self.exposure / self.period)
+        partial = self.exposure - complete_cycles * self.period
+        phase_bin_duration = self.period / self.phase_bins
+        return [complete_cycles * phase_bin_duration + max(
+            0.0, min(phase_bin_duration, partial - ip * phase_bin_duration))
+            for ip in range(self.phase_bins)]
+
     def score_document(self, document: dict, return_model: bool = False):
         if document.get("status") != "ok":
             return (-math.inf, None) if return_model else -math.inf
         grid = document["detected_count_rate"]
-        complete_cycles = math.floor(self.exposure / self.period)
-        partial = self.exposure - complete_cycles * self.period
-        phase_bin_duration = self.period / self.phase_bins
-        represented_time = [complete_cycles * phase_bin_duration + max(
-            0.0, min(phase_bin_duration, partial - ip * phase_bin_duration))
-            for ip in range(self.phase_bins)]
+        if self.media_de_fase > 1:
+            # MEDIA e nao soma: a saida e densidade de TAXA, em ct/s/keV, logo o
+            # representante do bin observado e a media das M amostras finas, e a
+            # exposicao multiplica depois.
+            import numpy as _np
+            g = _np.asarray(grid, float)
+            if g.shape[0] != self.phase_bins * self.media_de_fase:
+                raise ValueError(
+                    "o motor devolveu %d fases, e phaseAverage = %d com %d bins "
+                    "observados pede %d" % (g.shape[0], self.media_de_fase,
+                                            self.phase_bins,
+                                            self.phase_bins * self.media_de_fase))
+            grid = g.reshape(self.phase_bins, self.media_de_fase,
+                             -1).mean(axis=1).tolist()
+        represented_time = self.tempo_representado()
         expected = [max(1.0e-14,
                         (grid[ip][ie] + self.background[ie])
                         * self.energy_width * represented_time[ip])
                     for ip in range(self.phase_bins) for ie in range(self.energy_bins)]
         if self.fit_light_curve:
             return self._score_light_curve(grid, represented_time, return_model)
+        if self.marginalizar_fundo:
+            return self._score_marginal(grid, represented_time, return_model)
         log_likelihood = sum(self.observed[b] * math.log(expected[b]) - expected[b]
                              for b in self._fit_bins)
         return (log_likelihood, expected) if return_model else log_likelihood
@@ -1239,30 +1902,81 @@ class FitProblem:
 
     def evaluate(self, worker: "EngineWorker", values: list[float],
                  return_model: bool = False, return_pulse: bool = False):
+        """Log-posteriori do vetor, `-inf` SO fora da priori.
+
+        Falha do motor nao devolve `-inf`: ela tenta recuperacao deterministica e,
+        se nao houver avaliacao valida, levanta `FalhaDoMotor`. Ver
+        `DiagnosticoDoMotor` para a politica e por que a versao anterior, que
+        tolerava falha abaixo de um teto, estava errada.
+
+        A recuperacao e reavaliar o MESMO vetor num worker NOVO. Nada e
+        perturbado e nada e substituido, porque recuperar nao pode mudar o alvo.
+        O diagnostico e opcional para nao quebrar quem monta um FitProblem a mao;
+        sem ele o comportamento antigo volta, inclusive o silencio.
+        """
+        diagnostico = getattr(self, "diagnostico", None)
+        if diagnostico is not None:
+            diagnostico.conta_avaliacao()
         if not self.in_prior(values):
+            if diagnostico is not None:
+                diagnostico.fora(values)
             if return_model or return_pulse:
                 return -math.inf, None
             return -math.inf
         extra = self.extra_log_prior(values)
-        try:
-            if return_model or return_pulse:
-                log_likelihood, expected = self.score_document(
-                    worker.evaluate(self.worker_line(values)), True)
-                log_likelihood += extra
-                if return_model:
-                    return log_likelihood, expected
-                return log_likelihood, self.phase_pulse(expected) if expected else None
-            return self.score_document(worker.evaluate(self.worker_line(values))) + extra
-        except (BrokenPipeError, json.JSONDecodeError, OSError, RuntimeError):
-            if return_model or return_pulse:
-                return -math.inf, None
-            return -math.inf
+        tentativas = 1 + (diagnostico.tentativas if diagnostico is not None else 0)
+        for tentativa in range(1, tentativas + 1):
+            causa = detalhe = None
+            documento = None
+            try:
+                documento = worker.evaluate(self.worker_line(values))
+            except (BrokenPipeError, json.JSONDecodeError, OSError,
+                    RuntimeError) as erro:
+                causa, detalhe = "excecao", "%s: %s" % (type(erro).__name__, erro)
+            if documento is not None and documento.get("status") != "ok":
+                causa = "status"
+                detalhe = str(documento.get("message", "sem mensagem"))
+            if causa is None:
+                if diagnostico is not None and tentativa > 1:
+                    diagnostico.recuperada(tentativa - 1)
+                break
+            if diagnostico is None:
+                # Sem diagnostico, o comportamento historico: -inf silencioso.
+                if return_model or return_pulse:
+                    return -math.inf, None
+                return -math.inf
+            diagnostico.tentativa_falhou(values, causa, detalhe, tentativa,
+                                         self.names)
+            if tentativa == tentativas:
+                raise diagnostico.sem_recuperacao(values, causa, detalhe,
+                                                  self.names)
+            # Worker NOVO: distingue estado corrompido do processo de recusa do
+            # vetor. O motor e deterministico, entao se o novo tambem falhar a
+            # falha e do vetor.
+            worker.reiniciar()
+        if return_model or return_pulse:
+            log_likelihood, expected = self.score_document(documento, True)
+            log_likelihood += extra
+            if return_model:
+                return log_likelihood, expected
+            return log_likelihood, self.phase_pulse(expected) if expected else None
+        return self.score_document(documento) + extra
 
 
 class EngineWorker:
     def __init__(self, command: list[str]):
+        #: Guardado para `reiniciar`: o worker novo tem de ser o MESMO motor.
+        self.command = list(command)
+        self.reinicios = 0
         self.process = subprocess.Popen(command, cwd=ROOT, stdin=subprocess.PIPE,
-                                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                        # stderr HERDADO, nao DEVNULL: o motor so
+                                        # escreve ali duas coisas, o relato de
+                                        # resolucao da superficie, uma vez por
+                                        # processo, e a mensagem de erro fatal. O
+                                        # DEVNULL engolia as duas, inclusive os
+                                        # erros, que e o mesmo tipo de canal
+                                        # silencioso do teto de iteracoes.
+                                        stdout=subprocess.PIPE, stderr=None,
                                         text=True, bufsize=1)
 
     def evaluate(self, line: str) -> dict:
@@ -1274,6 +1988,26 @@ class EngineWorker:
         if not response:
             raise RuntimeError("persistent C++ worker returned no result")
         return json.loads(response)
+
+    def reiniciar(self) -> None:
+        """Mata o processo e sobe outro com o MESMO comando.
+
+        Existe para a recuperacao deterministica de `FitProblem.evaluate`: o
+        comando e identico, logo o motor novo e o mesmo motor, e reavaliar o
+        mesmo vetor nele nao muda o alvo. O que muda e so o estado do processo,
+        que e justamente o suspeito quando o primeiro falhou.
+        """
+        try:
+            if self.process.poll() is None:
+                self.process.kill()
+                self.process.wait(timeout=5)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        self.process = subprocess.Popen(self.command, cwd=ROOT,
+                                        stdin=subprocess.PIPE,
+                                        stdout=subprocess.PIPE, stderr=None,
+                                        text=True, bufsize=1)
+        self.reinicios += 1
 
     def close(self) -> None:
         if self.process.poll() is None and self.process.stdin:
@@ -1357,14 +2091,41 @@ def run_ensemble(problem: FitProblem, pool: WorkerPool, walkers: int, iterations
                  burn_in: int, seed: int, stretch_scale: float = 2.0,
                  checkpoint_path: str | None = None,
                  checkpoint_every: int = 50,
-                 resume_states: list[list[float]] | None = None) -> dict:
+                 resume_states: list[list[float]] | None = None,
+                 coletor=None, com_pulso: bool = True) -> dict:
     """Goodman-Weare red/blue stretch move with parallel half-ensemble updates.
+
+    `com_pulso=False` desliga o reservatorio de perfis posteriores. O padrao
+    True mantem o comportamento historico, bit a bit. O desligamento existe por
+    uma razao concreta: no alvo POR OBSERVACAO ha treze previsoes e portanto
+    treze perfis de pulso, e qual deles registrar e decisao cientifica, nao de
+    implementacao. Um piloto cujo objetivo e medir amostras efetivas por hora
+    nao precisa das bandas de credibilidade do pulso, e desligar o reservatorio
+    evita tomar aquela decisao por omissao. Quando a producao precisar das
+    bandas, a escolha sera explicita.
 
     Se `resume_states` vier (as posições finais de uma corrida anterior), o
     enxame nasce EXATAMENTE onde a corrida parou, em vez de ser sorteado da
     priori. Goodman-Weare é sem memória — só o estado atual dos caminhantes
     importa — então isso continua a mesma cadeia, sem desperdiçar o que já
     misturou. Use com burn_in=0 (já está equilibrado)."""
+    # COLETOR: alternativa a retencao das trajetorias inteiras. Sem ele o
+    # comportamento e identico ao de sempre. Com ele, `trajectories` e
+    # `trajectory_logps` NAO sao acumulados: a cada passo registrado o coletor
+    # recebe (states, logps) e guarda o que o chamador precisa.
+    #
+    # Existe porque a retencao completa custa 584 bytes por amostra em 19
+    # dimensoes, MEDIDO, o que da 5,60 GB em 96 x 100000 e nao cabe numa maquina
+    # de 15 GB com aplicativos abertos. Isso e limitacao da implementacao e nao
+    # exigencia do metodo: quem so precisa de uma coordenada, de um indicador ou
+    # de estatisticas correntes nao tem por que pagar o vetor inteiro.
+    #
+    # Com coletor, checkpoint fica proibido: ele e escrito a partir das
+    # trajetorias, e gravar um checkpoint vazio seria pior que nao gravar.
+    if coletor is not None and checkpoint_path:
+        raise RuntimeError(
+            "coletor e checkpoint_path sao incompativeis: o checkpoint e escrito "
+            "a partir das trajetorias, que o coletor substitui")
     rng = random.Random(seed)
     dimensions = len(problem.names)
     if resume_states is not None:
@@ -1400,7 +2161,7 @@ def run_ensemble(problem: FitProblem, pool: WorkerPool, walkers: int, iterations
                     f"configuracao e os dois conjuntos nao podem ser misturados.")
             state[index] = alvo
 
-    initial_results = pool.evaluate(problem, states, with_pulse=True)
+    initial_results = pool.evaluate(problem, states, with_pulse=com_pulso)
     logps = [result[0] for result in initial_results]
     pulses = [result[1] for result in initial_results]
     if not any(math.isfinite(value) for value in logps):
@@ -1419,7 +2180,7 @@ def run_ensemble(problem: FitProblem, pool: WorkerPool, walkers: int, iterations
                 states[index] = [value + rng.gauss(0, step) for value, step
                                  in zip(anchor, problem.steps)]
         replacements = pool.evaluate(problem, [states[index] for index in missing],
-                                     with_pulse=True)
+                                     with_pulse=com_pulso)
         for index, (value, pulse) in zip(missing, replacements):
             logps[index] = value
             pulses[index] = pulse
@@ -1464,10 +2225,44 @@ def run_ensemble(problem: FitProblem, pool: WorkerPool, walkers: int, iterations
     trajectory_logps: list[list[float]] = [[] for _ in range(walkers)]
     accepted = [0] * walkers
     posterior_pulses: list[list[float]] = []
-    pulse_samples_seen = 0
-    pulse_reservoir_size = 512
     total = burn_in + iterations
     halves = [list(range(0, walkers, 2)), list(range(1, walkers, 2))]
+    # FalhaDoMotor para a corrida na primeira falha nao recuperada (ver
+    # DiagnosticoDoMotor). O checkpoint TEM de ser gravado aqui, nao no chamador:
+    # as trajetorias sao locais desta funcao, e parar sem gravar jogaria fora
+    # tudo o que foi amostrado desde o ultimo checkpoint periodico.
+    try:
+        _laco_do_enxame(
+            problem, pool, rng, states, logps, pulses, accepted, halves,
+            trajectories, trajectory_logps, posterior_pulses, free_dimensions,
+            stretch_scale, burn_in, total, coletor, checkpoint_path,
+            checkpoint_every, com_pulso=com_pulso)
+    except FalhaDoMotor:
+        if checkpoint_path:
+            amostrado = len(trajectories[0]) if trajectories else 0
+            if amostrado:
+                _save_checkpoint(checkpoint_path, trajectories,
+                                 trajectory_logps, problem.names, amostrado)
+                print("checkpoint gravado com %d amostras por caminhante antes "
+                      "de parar" % amostrado, file=sys.stderr, flush=True)
+            else:
+                print("nada amostrado ainda: nenhum checkpoint a gravar",
+                      file=sys.stderr, flush=True)
+        raise
+    return {"trajectories": trajectories, "trajectory_logps": trajectory_logps,
+            "acceptance": [count / max(1, total) for count in accepted],
+            "posterior_pulses": posterior_pulses}
+
+
+def _laco_do_enxame(problem, pool, rng, states, logps, pulses, accepted, halves,
+                    trajectories, trajectory_logps, posterior_pulses,
+                    free_dimensions, stretch_scale, burn_in, total, coletor,
+                    checkpoint_path, checkpoint_every, com_pulso=True):
+    """O laco de passos, extraido para que `run_ensemble` possa gravar o
+    checkpoint se ele for interrompido. Nao muda nada do algoritmo."""
+    walkers = len(states)
+    pulse_samples_seen = 0
+    pulse_reservoir_size = 512
     for step_index in range(total):
         for half_index, active in enumerate(halves):
             complement = halves[1 - half_index]
@@ -1478,7 +2273,8 @@ def run_ensemble(problem: FitProblem, pool: WorkerPool, walkers: int, iterations
                 proposals.append([p + stretch * (x - p)
                                   for x, p in zip(states[walker], partner)])
                 stretch_values.append(stretch)
-            proposed_results = pool.evaluate(problem, proposals, with_pulse=True)
+            proposed_results = pool.evaluate(problem, proposals,
+                                             with_pulse=com_pulso)
             for walker, proposal, proposed_result, stretch in zip(
                     active, proposals, proposed_results, stretch_values):
                 proposal_logp, proposal_pulse = proposed_result
@@ -1491,9 +2287,12 @@ def run_ensemble(problem: FitProblem, pool: WorkerPool, walkers: int, iterations
                     pulses[walker] = proposal_pulse
                     accepted[walker] += 1
         if step_index >= burn_in:
+            if coletor is not None:
+                coletor(states, logps)
             for walker in range(walkers):
-                trajectories[walker].append(states[walker].copy())
-                trajectory_logps[walker].append(logps[walker])
+                if coletor is None:
+                    trajectories[walker].append(states[walker].copy())
+                    trajectory_logps[walker].append(logps[walker])
                 if pulses[walker] is not None:
                     pulse_samples_seen += 1
                     if len(posterior_pulses) < pulse_reservoir_size:
@@ -1509,9 +2308,6 @@ def run_ensemble(problem: FitProblem, pool: WorkerPool, walkers: int, iterations
                 and (step_index - burn_in + 1) % checkpoint_every == 0):
             _save_checkpoint(checkpoint_path, trajectories, trajectory_logps,
                              problem.names, step_index - burn_in + 1)
-    return {"trajectories": trajectories, "trajectory_logps": trajectory_logps,
-            "acceptance": [count / max(1, total) for count in accepted],
-            "posterior_pulses": posterior_pulses}
 
 
 def _save_checkpoint(path: str, trajectories, trajectory_logps, names,
@@ -1535,18 +2331,45 @@ def main() -> None:
     parser.add_argument("--background", type=Path,
                         help="taxa de fundo por keV já escalada para a região "
                              "da fonte (energy_keV,rate_per_keV_per_s)")
+    parser.add_argument("--recuperacoes-do-motor", type=int,
+                        default=DiagnosticoDoMotor.TENTATIVAS_DE_RECUPERACAO,
+                        help="quantas vezes reavaliar o MESMO vetor num worker "
+                             "novo antes de parar, quando o motor falha. Não "
+                             "existe opção de tolerar a falha: sem avaliação "
+                             "válida a corrida grava checkpoint e para, porque "
+                             "devolver -inf alteraria o núcleo de transição e "
+                             "poderia excluir uma região válida "
+                             "(padrão: %d)" % DiagnosticoDoMotor.TENTATIVAS_DE_RECUPERACAO)
+    parser.add_argument("--alerta-de-recuperadas", type=float, default=0.001,
+                        help="fração de avaliações recuperadas acima da qual o "
+                             "stderr avisa. Falha recuperada não enviesa a "
+                             "cadeia, porque o valor usado é o do motor; a taxa "
+                             "só denuncia processo doente (padrão: 0,001)")
     args = parser.parse_args()
     request = json.loads(args.request.read_text())
     metadata, events = read_events(args.events)
     background = read_background(args.background) if args.background else None
     problem = FitProblem(request, events, metadata, background)
+    problem.diagnostico = DiagnosticoDoMotor(
+        tentativas=args.recuperacoes_do_motor,
+        alerta_de_recuperadas=args.alerta_de_recuperadas)
     dimensions = len(problem.names)
     requested_walkers = int(request.get("walkers", request.get("chains", 24)))
     walkers = max(2 * dimensions, min(128, requested_walkers))
     if walkers % 2:
         walkers += 1
     requested = int(request.get("iterations", 200))
-    iterations = max(20, min(MAX_ITERATIONS, requested))
+    # O teto pode ser levantado de proposito pelo pedido, com maxIterations, mas
+    # NUNCA e aplicado em silencio: o comentario de MAX_ITERATIONS sempre
+    # prometeu que a poda seria reportada e o codigo nao reportava. Em 04/10/2026
+    # isso custou um ajuste de 70 h que pediu 140000 e rodou 100000 sem aviso,
+    # e so foi notado ao conferir a forma do checkpoint.
+    teto = max(20, int(request.get("maxIterations", MAX_ITERATIONS)))
+    iterations = max(20, min(teto, requested))
+    if iterations < requested:
+        print("AVISO: pediu %d iteracoes, o teto e %d, vai rodar %d. "
+              "Use a chave maxIterations do pedido para levantar o teto."
+              % (requested, teto, iterations), file=sys.stderr, flush=True)
     burn_in = max(0, min(MAX_ITERATIONS, int(request.get("burnIn", 80))))
     workers = max(1, min(walkers, int(request.get("workers", min(4, walkers)))))
     seed = int(request.get("seed", 2026))
@@ -1575,11 +2398,31 @@ def main() -> None:
     started = time.monotonic()
     pool = WorkerPool(problem, workers)
     try:
-        result = run_ensemble(problem, pool, walkers, iterations, burn_in,
-                              seed, stretch_scale,
-                              checkpoint_path=request.get("checkpointPath"),
-                              checkpoint_every=int(request.get("checkpointEvery", 50)),
-                              resume_states=resume_states)
+        try:
+            result = run_ensemble(problem, pool, walkers, iterations, burn_in,
+                                  seed, stretch_scale,
+                                  checkpoint_path=request.get("checkpointPath"),
+                                  checkpoint_every=int(request.get("checkpointEvery", 50)),
+                                  resume_states=resume_states)
+        except FalhaDoMotor as parada:
+            # Interrupcao DELIBERADA na PRIMEIRA falha nao recuperada: ver
+            # DiagnosticoDoMotor. O checkpoint ja foi gravado dentro do
+            # run_ensemble; aqui vai o relato, para o stderr e para um JSON ao
+            # lado dele, porque uma corrida que para por falha do motor precisa
+            # deixar registro de QUAL vetor falhou e por que.
+            print("CORRIDA INTERROMPIDA: %s" % parada, file=sys.stderr, flush=True)
+            relato = problem.diagnostico.relatorio()
+            destino = request.get("checkpointPath")
+            if destino:
+                caminho = str(destino).removesuffix(".npz") + "_falha_do_motor.json"
+                Path(caminho).write_text(
+                    json.dumps(relato, indent=2, ensure_ascii=False) + "\n")
+                print("diagnostico gravado em %s" % caminho,
+                      file=sys.stderr, flush=True)
+            else:
+                print(json.dumps(relato, indent=2, ensure_ascii=False),
+                      file=sys.stderr, flush=True)
+            raise SystemExit(3)
         all_samples = [sample for trajectory in result["trajectories"]
                        for sample in trajectory]
         all_logp = [value for trajectory in result["trajectory_logps"]
@@ -1622,6 +2465,11 @@ def main() -> None:
                           "best": best[parameter_index], "rhat": rhat(by_chain),
                           "ess": diagnostic["ess"],
                           "autocorrelationTime": diagnostic["tau"],
+                          # sem isto o leitor nao distingue um ESS estimado de
+                          # um ESS cuja soma a cadeia cortou. Nao certifica o
+                          # ESS: so diz se ha passos suficientes por tau.
+                          "essConfiavel": diagnostic["confiavel"],
+                          "passosPorTau": diagnostic["passosPorTau"],
                           "atBound": "" if is_cyclic(name) else
                           at_bound(values, problem.bounds[parameter_index]),
                           "cyclic": is_cyclic(name)})
@@ -1645,16 +2493,32 @@ def main() -> None:
     trace_walker_stride = max(1, math.ceil(walkers / 24))
     trace_walkers = list(range(0, walkers, trace_walker_stride))[:24]
     diagnostics = {
-        "autocorrelationLags": list(range(len(autocorrelations[0]))),
+        # do MAIOR, nao do primeiro: um parametro congelado devolve uma linha de
+        # um elemento, e tomar o comprimento da linha 0 anunciava 101 lags para
+        # linhas que tinham 1.
+        "autocorrelationLags": list(range(max(len(a) for a in autocorrelations)
+                                          if autocorrelations else 0)),
         "autocorrelation": autocorrelations,
         "traceIterations": [burn_in + index + 1 for index in trace_indices],
         "traceWalkerIndices": trace_walkers,
         "traces": [[result["trajectories"][walker][index]
                     for index in trace_indices] for walker in trace_walkers],
     }
+    import hashlib
+    exe = ROOT / "build" / "magnus_engine"
+    try:
+        motor_sha = hashlib.sha256(exe.read_bytes()).hexdigest()
+    except OSError:
+        motor_sha = None
+    cmd = [str(x) for x in problem.worker_command()]
     print(json.dumps({"status": "ok",
                       "backend": "affine-invariant ensemble MCMC + persistent MAGNUS C++ engine",
                       "algorithm": "Goodman-Weare stretch move",
+                      "superficie": superficie_efetiva(request),
+                      "motor": {"caminho": str(exe), "sha256": motor_sha},
+                      "comandoEfetivo": cmd,
+                      "comandoEfetivoSha256":
+                          hashlib.sha256(" ".join(cmd).encode()).hexdigest(),
                       "instrument": problem.instrument, "selectedEvents": problem.selected,
                       "exposure": problem.exposure,
                       "exposureSource": ("request" if request.get("exposure")
@@ -1663,6 +2527,7 @@ def main() -> None:
                       "absorption": {"model": "TBabs (wilm)" if problem.absorption_table
                                      else "none", "fitted": problem.fit_nh,
                                      "nh_1e22": problem.nh},
+                      "diagnosticoDoMotor": problem.diagnostico.relatorio(),
                       "background": {"applied": any(problem.background),
                                      "expectedCounts": sum(
                                          rate * problem.energy_width * problem.exposure

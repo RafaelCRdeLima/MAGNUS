@@ -1,0 +1,122 @@
+{
+  "instrument": "xmm_epn_imaging_combinado13",
+  "period": 10.3131714585,
+  "distance": 0.08019313216209412,
+  "mass": 2.410033049480913,
+  "radius": 13.380514144897461,
+  "inclination": 87.36522674560547,
+  "phaseOffset": 0.0,
+  "energyMin": 0.15,
+  "energyMax": 1.2,
+  "energyBins": 40,
+  "phaseBins": 32,
+  "maxImages": 2,
+  "spotCount": 0,
+  "spots": [],
+  "atmosphereTable": "tabelas/magnus_campoBg_vacuo_v5.magnus",
+  "fitCompactness": true,
+  "magneticColatitude": 49.899078369140625,
+  "fitMagneticColatitude": true,
+  "magneticColatitudeRange": [
+    0.0,
+    90.0
+  ],
+  "magneticAzimuth": 13.299480438232422,
+  "fitMagneticAzimuth": true,
+  "fitMagneticField": true,
+  "magneticField": 61431094382728.82,
+  "fitBaseTemperature": true,
+  "baseTemperature": 0.0658809170126915,
+  "baseTemperatureRange": [
+    0.02,
+    0.15
+  ],
+  "fitTemperaturePeaking": true,
+  "temperaturePeaking": 1.739759087562561,
+  "temperaturePeakingRange": [
+    0.0,
+    3.0
+  ],
+  "fitBaseTemperature2": true,
+  "baseTemperature2": 0.0680798664689064,
+  "baseTemperature2Range": [
+    0.02,
+    0.15
+  ],
+  "fitTemperaturePeaking2": true,
+  "temperaturePeaking2": 2.807547092437744,
+  "temperaturePeaking2Range": [
+    0.0,
+    3.0
+  ],
+  "temperatureMinFrac": 0.3,
+  "fitAtmosphereFraction": true,
+  "atmosphereFraction": 0.7571703195571899,
+  "fitLine": true,
+  "lineEnergy": 0.22,
+  "lineWidth": 0.23483987152576447,
+  "lineDepth": 1.4195213317871094,
+  "nh": 0.0229,
+  "fitNh": true,
+  "priors": {
+    "radius": [
+      10.0,
+      18.0
+    ],
+    "lineEnergy": [
+      0.15,
+      0.5
+    ],
+    "lineWidth": [
+      0.03,
+      0.35
+    ],
+    "lineDepth": [
+      0.0,
+      3.0
+    ],
+    "logMagneticField": [
+      13.2,
+      14.0
+    ]
+  },
+  "fixed": {
+    "phaseOffset": 0.0,
+    "lineEnergy": 0.3
+  },
+  "walkers": 96,
+  "iterations": 140000,
+  "burnIn": 5000,
+  "workers": 48,
+  "_config": "FIXTURE do teste do offset de fase observacional, derivado de exploracoes/reotimizacao_2026-10-04/pedido_uniao.json. Existe porque o teste vai ao repositorio publico e exploracoes/ nao vai: um teste publicado nao pode depender de um caminho que nao e publicado, e os tres testes daquela classe falhavam no clone publico por isso. Copia congelada; se o pedido canonico mudar de forma relevante, este arquivo deve ser refeito deliberadamente. O campo preparedDataNpz foi REMOVIDO: ele apontava para exploracoes/dados_combinados_13obs_2026-09-12/combinado13.npz, que tambem nao e publicado, e este teste nao precisa do dado coadicionado -- ele verifica o COMANDO que o adaptador monta para o motor. As contagens vem de dados/eventos.csv.",
+  "checkpointEvery": 500,
+  "lineCyclotron": true,
+  "massFloor": 1.1,
+  "fitPole2Tilt": true,
+  "pole2Tilt": -13.82653522491455,
+  "pole2TiltRange": [
+    -90.0,
+    90.0
+  ],
+  "energyFitMax": 1.0,
+  "fieldPeaking": 0.25,
+  "fieldGR": true,
+  "fitDistance": true,
+  "distanceRange": [
+    0.08,
+    0.7
+  ],
+  "fitPole2Tilt2": true,
+  "pole2Tilt2": 0.0,
+  "pole2Tilt2Range": [
+    1.0,
+    90.0
+  ],
+  "stretchScale": 1.3,
+  "nhMax": 0.06,
+  "inclinationRange": [
+    88.0,
+    100.0
+  ],
+  "fieldNearestPole": false
+}

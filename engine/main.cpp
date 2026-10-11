@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <functional>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -62,6 +63,16 @@ struct Config {
     double position_angle_deg{0.0};
     int phase_samples{241};
     int surface_rings{13};
+    // RESOLUCAO DA ESFERA, separada da dos spots. Zero mantem a regra antiga,
+    // base_bands = clamp(2*surface_rings, 16, 60), para as corridas anteriores
+    // continuarem reproduziveis bit a bit. Positivo passa a valer diretamente,
+    // sem o teto de 60, que era o bloqueio para estudar convergencia: com
+    // surface_rings grampeado em 30, rings=30 JA dava as 60 bandas maximas e nao
+    // havia folga para refinar. Ver docs/incidente_resolucao_2026-10-04.
+    int sphere_bands{0};
+    // Refino das celulas atravessadas pelas fronteiras dos lobos termicos.
+    // 1 mantem a quadratura antiga, bit a bit.
+    int boundary_refine{1};
     int max_images{2};
     bool render_image{false};
     bool transfer_table{false};
@@ -72,6 +83,23 @@ struct Config {
     int image_height{420};
     double observed_phase{0.0};
     int transfer_samples{1024};
+    int ray_table_size{0};   // 0 = o padrao historico de 1800
+    //: Subdivisao, por FASE, das celulas cortadas pela fronteira de
+    //: visibilidade. 1 reproduz o comportamento historico bit a bit.
+    int limb_refine{1};
+    //: Quadratura da superficie: "bandas" (padrao historico) ou "gauss".
+    std::string quadratura{"bandas"};
+    int mu_nodes{128};
+    int phi_nodes{256};
+    //: Relata, em stderr, a soma do angulo solido por banda de latitude e por
+    //: imagem, com aceitos e rejeitados. E o instrumento de localizacao do
+    //: deficit de normalizacao.
+    bool report_bands{false};
+    //: Deslocamento da malha em azimute, em FRACAO da largura da celula. Serve
+    //: para separar erro dependente do ALINHAMENTO da malha de erro de
+    //: resolucao: a fisica nao muda, so quais pontos sao amostrados. 0 reproduz
+    //: o comportamento historico.
+    double mesh_phi_offset{0.0};
     double energy_min_kev{0.2};
     double energy_max_kev{12.0};
     int energy_bins{96};
@@ -82,6 +110,80 @@ struct Config {
     std::string instrument_response;
     double instrument_time_resolution_us{0.0};
     double instrument_dead_time_us{0.0};
+    // OFFSET DE FASE OBSERVACIONAL, em CICLOS. Desloca a fase rotacional em que
+    // a estrela e amostrada em cada bin OBSERVADO, sem mexer em nada da fisica:
+    //
+    //   arrival_phase(p) = 2 pi ( (p + 0,5)/N + offset )
+    //
+    // Existe porque alinhar observacoes exige um operador de fase EXPLICITO. Eu
+    // havia usado `magAzim`, o azimute magnetico, para isso, e estava errado por
+    // dois motivos. Primeiro, ele e um parametro FISICO livre e compartilhado, e
+    // usa-lo como offset confunde alinhamento com geometria. Segundo, ele nao e
+    // um operador de fase exato: medido, rolar a grade e mover o azimute diferem
+    // por 0,061 em ln L e por ate 3,0e-04 por celula, porque o azimute move a
+    // configuracao magnetica DENTRO da malha, que e fixa no referencial da
+    // estrela, mudando o erro de quadratura. Este offset nao move nada dentro da
+    // malha: muda apenas o instante amostrado.
+    //
+    // A EXPOSICAO NAO E DESLOCADA. Ela fica nas fases OBSERVADAS, onde foi
+    // medida; o offset desloca a previsao, nunca o dado nem o tempo vivo.
+    double observation_phase_offset_cycles{0.0};
+    //: THREADS do laco de fases. 1 por omissao, e 1 tem de reproduzir a
+    //: previsao do binario sem OpenMP bit a bit: a flag existe para medir, nao
+    //: para mudar o resultado. Sem -fopenmp o pragma nao existe e isto fica
+    //: inerte, o que tambem e declarado na saida.
+    int threads{1};
+    // ROTA MULTI-OBSERVACAO. Uma chamada calcula a EMISSAO COMUM uma vez e
+    // aplica, por observacao, a sua resposta, o seu offset, a sua resolucao e o
+    // seu tempo morto, devolvendo uma grade por observacao.
+    //
+    // POR QUE ISTO E EXATO E NAO APROXIMADO. O corte fica em `flux`, a densidade
+    // de fotons incidente no telescopio depois da absorcao e ANTES do
+    // instrumento. Tudo antes dela depende so do vetor de parametros, logo e
+    // comum; tudo depois e especifico da observacao, inclusive o tempo morto,
+    // que depende da taxa DEPOIS da resposta. E com offset multiplo inteiro de
+    // 1/N a fase do bin p com offset k/N e a fase do bin p+k sem offset, o que
+    // foi validado com diferenca 0,000e+00 (docs/valida_offset.json, V4).
+    //
+    // OFFSET FRACIONARIO E RECUSADO AQUI, em vez de interpolado em silencio:
+    // uma grade de N fases nao contem as fases que um offset fracionario pede,
+    // e inventar a diferenca seria erro nao declarado. Para sub-bin exato, use
+    // N.M fases com M IMPAR e offsets multiplos de 1/(N.M); com M par o centro
+    // do bin grosso cai na fronteira de dois finos.
+    struct ObservationSlot {
+        std::string id;
+        std::string profile;
+        std::string response;
+        double time_resolution_us{0.0};
+        double dead_time_us{0.0};
+        double offset_cycles{0.0};
+        //: O periodo DAQUELA observacao, para registro e para medir o desvio
+        //: contra o comum. Ele NAO e aplicado: o periodo entra a MONTANTE da
+        //: emissao comum, pelo Doppler rotacional, logo reusar a emissao exige
+        //: um periodo so. Medido: um desvio relativo de 6,0e-05 entre duas
+        //: observacoes produz 1,6e-08 relativo na previsao. O desvio sai no
+        //: relato para que a aproximacao seja VISIVEL, em vez de silenciosa.
+        double period_s{0.0};
+    };
+    std::vector<ObservationSlot> observations;
+    //: MALHA EM psi_0, centrada no observador, para DIAGNOSTICO. Padrao false,
+    //: de modo que o caminho de producao fica bit a bit identico; so o
+    //: executavel de diagnostico a liga.
+    //:
+    //: POR QUE ELA EXISTE. A derivacao mostra que o jacobiano contem
+    //: 1/sin(psi_0) e o elemento de area em coordenadas centradas no observador
+    //: contem sin(psi_0) dpsi_0 dphi, de modo que o fator divergente CANCELA e o
+    //: integrando fica regular na antipoda. A malha em (theta, phi) nao esta
+    //: alinhada com psi_0 e avalia 1/sin(psi_0) no ponto medio da celula contra
+    //: uma area que integra sin(psi_0) exatamente, sem que os dois se cancelem
+    //: dentro da celula.
+    //:
+    //: ELA NAO E REFERENCIA POR DEFINICAO. Mudar de coordenadas nao certifica
+    //: nada: ela tera de demonstrar convergencia PROPRIA e concordancia com
+    //: controles independentes, e e para isso que serve.
+    bool malha_psi0{false};
+    //: Bandas em psi_0 quando a malha psi_0 esta ligada; 0 usa sphere_bands.
+    int psi_bandas{0};
     // Coluna de hidrogênio no caminho, em 1e22 cm^-2, e a tabela de seção de
     // choque que a converte em transmissão. Sem absorção o espectro térmico
     // mole chega ao detector como se o meio interestelar não existisse.
@@ -291,7 +393,7 @@ std::vector<double> gauss_legendre_unit_weights(const std::vector<float>& mu) {
 
 class RayTable {
   public:
-    explicit RayTable(double compactness) : u_(compactness) {
+    explicit RayTable(double compactness, int table_size_cfg = 0) : u_(compactness) {
         if (!(u_ > 0.0 && u_ < 1.0)) {
             throw std::runtime_error("compactness must satisfy 0 < 2GM/(Rc^2) < 1");
         }
@@ -303,7 +405,11 @@ class RayTable {
             alpha_escape = std::asin(clamp_unit(critical_sine));
         }
 
-        constexpr int table_size = 1800;
+        // 1800 era fixo. Os pontos se concentram perto da direcao de escape,
+        // que E o limbo, entao esta resolucao e candidata ao residuo que o
+        // refino termico nao alcanca, e tem de ser mensuravel.
+        const int table_size = table_size_cfg > 0
+            ? std::clamp(table_size_cfg, 200, 200000) : 1800;
         alpha_.reserve(table_size);
         psi_.reserve(table_size);
         for (int i = 0; i < table_size; ++i) {
@@ -321,6 +427,10 @@ class RayTable {
     }
 
     double psi_max() const { return psi_.empty() ? 0.0 : psi_.back(); }
+    //: Menor psi da tabela. Com psi_max, delimita a faixa de onde a fronteira
+    //: de visibilidade sai: detecta-la nao precisa de tracado, basta um produto
+    //: escalar por canto da celula.
+    double psi_min() const { return psi_.empty() ? 0.0 : psi_.front(); }
     double alpha_max() const { return alpha_.empty() ? 0.0 : alpha_.back(); }
 
     bool trace_alpha(double alpha, double& psi, double& delay_seconds_per_km) const {
@@ -397,11 +507,16 @@ struct SurfaceSample {
     Vec3 normal;
     double weight{};
     double intensity{};
+    //: Extensao da (sub)celula de onde esta amostra saiu. Existe para o refino
+    //: da FRONTEIRA DE VISIBILIDADE, que, diferente das fronteiras termicas,
+    //: nao pode ser resolvida na amostragem: ela se move com a fase.
+    double t0{}, t1{}, phi0{}, dphi{};
 };
 
 struct SpectralSurfaceSample {
     Vec3 normal;
     double weight{};
+    double t0{}, t1{}, phi0{}, dphi{};
     double temperature_mk{};
     //: Ângulo entre B e a normal, em graus. É propriedade do PONTO e não da
     //: fase — a normal e o eixo magnético giram juntos —, então se calcula uma
@@ -425,6 +540,16 @@ struct RayContribution {
     int spot_id{};
     int image_order{};
     double log_b{0.0};
+    //: Banda de latitude de onde a amostra veio. Existe para LOCALIZAR o
+    //: deficit de normalizacao: no controle isotermico isotropico todo o fator
+    //: geometrico esta em solid_angle_sr, e a soma dele tem de dar
+    //: pi (R_inf/D)^2 exatamente.
+    //
+    //: FICA NO FIM DE PROPOSITO. A linha 1632 inicializa este agregado por
+    //: POSICAO, entao por o campo no inicio desloca todos os outros, e o
+    //: compilador apenas avisa com -Wnarrowing em vez de falhar: foi o que
+    //: aconteceu, e o binario saiu corrompido em silencio.
+    int band{-1};
 };
 
 std::vector<SurfaceSample> sample_spot(const Spot& spot, int rings) {
@@ -463,8 +588,99 @@ std::vector<SurfaceSample> sample_spot(const Spot& spot, int rings) {
 // para ladrilhos de área quase igual. Ela é independente da resolução dos
 // spots: o fundo é suave e não precisa de malha fina para a sua contribuição de
 // fase (que vem só da variação de theta_B pelo disco e da curvatura da luz).
+//: Refina as celulas atravessadas por uma fronteira n.b = 0. A lei de
+//: temperatura tem transicoes nessas fronteiras, uma por eixo de polo, e no
+//: limite a -> 0 elas viram DEGRAUS. A malha e alinhada ao eixo de coordenadas,
+//: enquanto as fronteiras sao circulos maximos inclinados pela colatitude
+//: magnetica, entao o degrau corta as celulas obliquamente e a regra do ponto
+//: medio erra de forma que OSCILA conforme a descontinuidade passa pelos
+//: centros. Medido em 04/10/2026: 25 em ln L entre resolucoes.
+//: Como as fronteiras sao curvas, so O(N) das O(N^2) celulas precisam de
+//: refino, e o custo extra e pequeno.
+// ---------------------------------------------------------------------------
+// Quadratura EXPERIMENTAL de Gauss-Legendre em mu = cos(theta).
+//
+// A atual usa bandas uniformes em theta com ponto medio, que da O(h^2) na
+// direcao theta, enquanto a direcao azimutal e periodica e deveria ser quase
+// espectral. O vies residual de 1,3e-4 a 4,5e-4, que a media sobre
+// alinhamentos NAO remove, e consistente com theta dominar, mas isso e
+// HIPOTESE: o vies sozinho nao demonstra a origem.
+//
+// Em dOmega = dphi dmu, a integral de 1 da soma(w_mu) * 2pi = 2 * 2pi = 4pi.
+//
+// NAO resolve degrau termico: Gauss-Legendre e regra de PONTOS, nao particao,
+// entao o refino de fronteira do modo de bandas nao tem analogo aqui. O
+// controle isotermico nao tem fronteira termica e por isso pode ser testado
+// assim; os cinco vetores dificeis exigem tratamento proprio, nao projetado.
+void gauss_legendre(int n, std::vector<double>& x, std::vector<double>& w) {
+    x.assign(static_cast<std::size_t>(n), 0.0);
+    w.assign(static_cast<std::size_t>(n), 0.0);
+    for (int i = 0; i < n; ++i) {
+        // palpite de Francesco Tricomi, refinado por Newton
+        double z = std::cos(pi * (static_cast<double>(i) + 0.75) /
+                            (static_cast<double>(n) + 0.5));
+        double pp = 0.0;
+        for (int it = 0; it < 100; ++it) {
+            double p0 = 1.0, p1 = 0.0;
+            for (int k = 0; k < n; ++k) {
+                const double p2 = p1;
+                p1 = p0;
+                p0 = ((2.0 * k + 1.0) * z * p1 - static_cast<double>(k) * p2) /
+                     static_cast<double>(k + 1);
+            }
+            pp = static_cast<double>(n) * (z * p0 - p1) / (z * z - 1.0);
+            const double dz = p0 / pp;
+            z -= dz;
+            if (std::abs(dz) < 1.0e-15) break;
+        }
+        x[static_cast<std::size_t>(i)] = z;
+        w[static_cast<std::size_t>(i)] = 2.0 / ((1.0 - z * z) * pp * pp);
+    }
+}
+
+std::vector<SurfaceSample> sample_sphere_gauss(double base_temperature_mk,
+                                               int mu_nodes, int phi_nodes,
+                                               const std::vector<Spot>& spots) {
+    std::vector<SurfaceSample> samples;
+    const double intensity = std::pow(std::max(base_temperature_mk, 0.01), 4.0);
+    std::vector<Vec3> centers;
+    std::vector<double> cos_radius;
+    for (const auto& spot : spots) {
+        const double th = deg(spot.theta_deg), ph = deg(spot.phi_deg);
+        centers.push_back({std::sin(th) * std::cos(ph), std::sin(th) * std::sin(ph),
+                           std::cos(th)});
+        cos_radius.push_back(std::cos(deg(spot.radius_deg)));
+    }
+    std::vector<double> mu, wmu;
+    gauss_legendre(mu_nodes, mu, wmu);
+    const double dph = 2.0 * pi / phi_nodes;
+    samples.reserve(static_cast<std::size_t>(mu_nodes) * phi_nodes);
+    for (int im = 0; im < mu_nodes; ++im) {
+        const double m = mu[static_cast<std::size_t>(im)];
+        const double st = std::sqrt(std::max(0.0, 1.0 - m * m));
+        const double tt = std::acos(std::max(-1.0, std::min(1.0, m)));
+        for (int ip = 0; ip < phi_nodes; ++ip) {
+            const double pm = dph * (static_cast<double>(ip) + 0.5);
+            const Vec3 normal{st * std::cos(pm), st * std::sin(pm), m};
+            bool in_spot = false;
+            for (std::size_t s = 0; s < centers.size(); ++s) {
+                if (dot(normal, centers[s]) >= cos_radius[s]) { in_spot = true; break; }
+            }
+            if (in_spot) continue;
+            // t0 = t1 de proposito: nao ha celula, e o refino de fronteira do
+            // modo de bandas fica inativo porque testa dphi > 0 com extensao
+            // nula em latitude. Em Gauss ele NAO se aplica.
+            samples.push_back({normal, wmu[static_cast<std::size_t>(im)] * dph,
+                               intensity, tt, tt, pm - 0.5 * dph, 0.0});
+        }
+    }
+    return samples;
+}
+
 std::vector<SurfaceSample> sample_full_sphere(double base_temperature_mk, int bands,
-                                              const std::vector<Spot>& spots) {
+                                              const std::vector<Spot>& spots,
+                                              const std::vector<Vec3>& boundaries = {},
+                                              int refine = 1, double phi_offset = 0.0) {
     std::vector<SurfaceSample> samples;
     const double intensity = std::pow(std::max(base_temperature_mk, 0.01), 4.0);
     std::vector<Vec3> centers;
@@ -484,26 +700,70 @@ std::vector<SurfaceSample> sample_full_sphere(double base_temperature_mk, int ba
         const double tmid = 0.5 * (t0 + t1);
         const int azimuths = std::max(4, static_cast<int>(
             std::ceil(2.0 * nlat * std::sin(tmid))));
-        const double tile_area = 2.0 * pi * (std::cos(t0) - std::cos(t1)) / azimuths;
+        const double dph = 2.0 * pi / azimuths;
         for (int ia = 0; ia < azimuths; ++ia) {
-            const double ph = 2.0 * pi * (ia + 0.5) / azimuths;
-            const Vec3 normal{std::sin(tmid) * std::cos(ph),
-                              std::sin(tmid) * std::sin(ph), std::cos(tmid)};
-            bool in_spot = false;
-            for (std::size_t s = 0; s < centers.size(); ++s) {
-                if (dot(normal, centers[s]) >= cos_radius[s]) { in_spot = true; break; }
+            const double ph0 = 2.0 * pi * ia / azimuths + phi_offset * dph;
+            const double ph1 = ph0 + dph;
+            // A celula precisa de refino se alguma fronteira troca de sinal
+            // entre seus quatro cantos.
+            int k = 1;
+            if (refine > 1 && !boundaries.empty()) {
+                for (const auto& b : boundaries) {
+                    bool pos = false, neg = false;
+                    for (double tt : {t0, t1}) {
+                        for (double pp : {ph0, ph1}) {
+                            const Vec3 c{std::sin(tt) * std::cos(pp),
+                                         std::sin(tt) * std::sin(pp), std::cos(tt)};
+                            (dot(c, b) >= 0.0 ? pos : neg) = true;
+                        }
+                    }
+                    if (pos && neg) { k = refine; break; }
+                }
             }
-            if (in_spot) continue;
-            samples.push_back({normal, tile_area, intensity});
+            for (int it = 0; it < k; ++it) {
+                const double ta = t0 + (t1 - t0) * it / k;
+                const double tb = t0 + (t1 - t0) * (it + 1) / k;
+                const double tm = 0.5 * (ta + tb);
+                // Area exata da sub-celula: (cos ta - cos tb) * dphi.
+                const double area = (std::cos(ta) - std::cos(tb)) * dph / k;
+                for (int ip = 0; ip < k; ++ip) {
+                    const double pa = ph0 + dph * ip / k;
+                    const double pm = ph0 + dph * (ip + 0.5) / k;
+                    const Vec3 normal{std::sin(tm) * std::cos(pm),
+                                      std::sin(tm) * std::sin(pm), std::cos(tm)};
+                    bool in_spot = false;
+                    for (std::size_t s = 0; s < centers.size(); ++s) {
+                        if (dot(normal, centers[s]) >= cos_radius[s]) { in_spot = true; break; }
+                    }
+                    if (in_spot) continue;
+                    samples.push_back({normal, area, intensity,
+                                       ta, tb, pa, dph / k});
+                }
+            }
         }
     }
     return samples;
 }
 
+//: Digitos significativos da saida numerica. O PADRAO E 10, o de sempre, para
+//: que a saida nao mude sem que alguem peca; `--output-precision 17` devolve o
+//: double inteiro.
+//:
+//: POR QUE ISTO EXISTE. Com 10 digitos, um valor de ordem 2,5 tem quantum de
+//: impressao de 1e-9, e duas rotas que calculam o MESMO double por ordens de
+//: operacao diferentes imprimem valores que diferem por um ou dois quanta
+//: quando o valor cai perto de uma fronteira de arredondamento. Medi isso
+//: comparando a rota multi-observacao com as chamadas individuais: as
+//: diferencas foram 2,000e-09, 2,000e-09, 2,000e-08 e 7,000e-09, todas
+//: multiplos inteiros do quantum da sua magnitude. Era o piso da SAIDA, nao
+//: diferenca de conta, e uma tolerancia de 1e-12 nunca poderia passar. Ja me
+//: havia acontecido antes, com a tolerancia do portao pre-registrado.
+int g_output_precision = 10;
+
 std::string number(double value) {
     if (!std::isfinite(value)) return "null";
     std::ostringstream out;
-    out << std::setprecision(10) << value;
+    out << std::setprecision(g_output_precision) << value;
     return out.str();
 }
 
@@ -524,6 +784,8 @@ Config parse_args(int argc, char** argv) {
         else if (key == "--position-angle") cfg.position_angle_deg = std::stod(value());
         else if (key == "--samples") cfg.phase_samples = std::stoi(value());
         else if (key == "--rings") cfg.surface_rings = std::stoi(value());
+        else if (key == "--sphere-bands") cfg.sphere_bands = std::stoi(value());
+        else if (key == "--boundary-refine") cfg.boundary_refine = std::stoi(value());
         else if (key == "--max-images") cfg.max_images = std::stoi(value());
         else if (key == "--render") cfg.render_image = true;
         else if (key == "--transfer") cfg.transfer_table = true;
@@ -531,6 +793,13 @@ Config parse_args(int argc, char** argv) {
         else if (key == "--event-list") { cfg.event_list = true; cfg.spectral_grid = true; }
         else if (key == "--fit-worker") { cfg.fit_worker = true; cfg.spectral_grid = true; }
         else if (key == "--transfer-samples") cfg.transfer_samples = std::stoi(value());
+        else if (key == "--ray-table-size") cfg.ray_table_size = std::stoi(value());
+        else if (key == "--limb-refine") cfg.limb_refine = std::stoi(value());
+        else if (key == "--mesh-phi-offset") cfg.mesh_phi_offset = std::stod(value());
+        else if (key == "--report-bands") cfg.report_bands = true;
+        else if (key == "--quadrature") cfg.quadratura = value();
+        else if (key == "--mu-nodes") cfg.mu_nodes = std::stoi(value());
+        else if (key == "--phi-nodes") cfg.phi_nodes = std::stoi(value());
         else if (key == "--energy-min") cfg.energy_min_kev = std::stod(value());
         else if (key == "--energy-max") cfg.energy_max_kev = std::stod(value());
         else if (key == "--energy-bins") cfg.energy_bins = std::stoi(value());
@@ -540,6 +809,49 @@ Config parse_args(int argc, char** argv) {
         else if (key == "--instrument-profile") cfg.instrument_profile = value();
         else if (key == "--instrument-response") cfg.instrument_response = value();
         else if (key == "--time-resolution-us") cfg.instrument_time_resolution_us = std::stod(value());
+        else if (key == "--observation-phase-offset") cfg.observation_phase_offset_cycles = std::stod(value());
+        else if (key == "--threads") {
+            const int t = std::stoi(value());
+            if (t < 1 || t > 1024) {
+                std::cerr << "MAGNUS engine error: --threads fora de [1, 1024]\n";
+                std::exit(2);
+            }
+            cfg.threads = t;
+        }
+        else if (key == "--malha-psi0") cfg.malha_psi0 = true;
+        else if (key == "--psi-bandas") cfg.psi_bandas = std::stoi(value());
+        else if (key == "--output-precision") {
+            const int d = std::stoi(value());
+            if (d < 6 || d > 17) {
+                throw std::runtime_error("--output-precision fora de [6, 17]");
+            }
+            g_output_precision = d;
+        }
+        // `--obs-id` ABRE uma observacao; os demais campos preenchem a ULTIMA
+        // aberta. Campos em flags separadas, e nao numa lista com virgulas,
+        // porque caminhos de arquivo podem conter virgula e o erro seria
+        // silencioso.
+        else if (key == "--obs-id") {
+            cfg.observations.push_back({});
+            cfg.observations.back().id = value();
+        }
+        else if (key == "--obs-profile" || key == "--obs-response"
+                 || key == "--obs-time-resolution-us"
+                 || key == "--obs-dead-time-us" || key == "--obs-offset"
+                 || key == "--obs-period") {
+            if (cfg.observations.empty()) {
+                throw std::runtime_error(std::string(key)
+                    + " sem --obs-id antes: cada observacao abre com --obs-id");
+            }
+            auto& slot = cfg.observations.back();
+            const std::string v = value();
+            if (key == "--obs-profile") slot.profile = v;
+            else if (key == "--obs-response") slot.response = v;
+            else if (key == "--obs-time-resolution-us") slot.time_resolution_us = std::stod(v);
+            else if (key == "--obs-dead-time-us") slot.dead_time_us = std::stod(v);
+            else if (key == "--obs-period") slot.period_s = std::stod(v);
+            else slot.offset_cycles = std::stod(v);
+        }
         else if (key == "--dead-time-us") cfg.instrument_dead_time_us = std::stod(value());
         else if (key == "--nh") cfg.nh_1e22 = std::stod(value());
         else if (key == "--line-energy") cfg.line_energy_kev = std::stod(value());
@@ -610,7 +922,26 @@ Config parse_args(int argc, char** argv) {
             std::cout << "MAGNUS engine --mass M --radius R --period P --inclination i "
                          "--spot theta,phi,radius,temp [--spot ...] "
                          "[--spectral-grid --energy-min E --energy-max E --energy-bins N --time-bins N] "
-                         "[--atmosphere-table T --magnetic-colatitude deg --magnetic-azimuth deg]\n";
+                         "[--atmosphere-table T --magnetic-colatitude deg --magnetic-azimuth deg]\n"
+                         "quadratura da superficie: [--sphere-bands N] [--boundary-refine K] "
+                         "[--rings N] [--field-nearest-pole]\n"
+                         "  --sphere-bands N     bandas de latitude, 8 a 4000; sem ela, "
+                         "clamp(2*rings, 16, 60)\n"
+                         "  --boundary-refine K  subdivide em K x K as celulas cortadas por "
+                         "n.eixo = 0; K=1 reproduz a quadratura antiga bit a bit\n"
+                         "  --field-nearest-pole usa max(c1,c2) no lugar de |cmag| para a "
+                         "intensidade do campo, comportamento anterior a d7f7dae\n"
+                         "  --ray-table-size N   nos da tabela de desvio, 200 a 200000; "
+                         "sem ela, 1800. Os nos se concentram perto da direcao de escape, "
+                         "isto e no limbo\n"
+                         "  --limb-refine K      subdivide em K x K, POR FASE, as celulas "
+                         "cortadas pela fronteira de visibilidade; 1 reproduz o historico\n"
+                         "  --mesh-phi-offset F  desloca a malha em azimute por F celulas; a "
+                         "fisica nao muda, so quais pontos sao amostrados. 0 = historico\n"
+                         "  --quadrature M       bandas (padrao) ou gauss: Gauss-Legendre em "
+                         "mu = cos theta, EXPERIMENTAL\n"
+                         "  --mu-nodes N         nos em mu no modo gauss\n"
+                         "  --phi-nodes M        nos em phi no modo gauss\n";
             std::exit(0);
         } else {
             throw std::runtime_error("unknown argument: " + key);
@@ -2063,7 +2394,9 @@ void write_event_list(const Config& cfg, const std::vector<double>& photon_flux,
 
 void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
                          const InstrumentResponse* prepared_response = nullptr,
-                         const InterstellarAbsorption* prepared_absorption = nullptr) {
+                         const InterstellarAbsorption* prepared_absorption = nullptr,
+                         const std::vector<std::unique_ptr<InstrumentResponse>>*
+                             prepared_slots = nullptr) {
     const auto started = std::chrono::steady_clock::now();
     // Eixo do dipolo, no referencial do corpo. O ângulo entre B e a normal sai
     // dele ponto a ponto, e não muda com a fase: normal e eixo giram juntos.
@@ -2094,18 +2427,19 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
         const double cc = std::max(0.0, c), s2 = std::max(0.0, 1.0 - cc * cc);
         return std::log10(cfg.magnetic_field_g * std::sqrt(cc * cc + a_b * s2));
     };
+    int bandas_usadas = 0;   // visivel fora do bloco, para o relato por banda
+    //: A FISICA LOCAL de uma amostra, como funcao da normal. Extraida para que a
+    //: malha seja PLUGAVEL: o gerador muda, isto NAO. Duplicar esta conta num
+    //: executavel de diagnostico seria convidar divergencia silenciosa entre as
+    //: duas, que foi exatamente o que a funcao `cadeia_da_observacao` evitou na
+    //: rota multi-observacao.
+    std::function<SpectralSurfaceSample(const SurfaceSample&)> fisica_local;
     if (cfg.base_temperature_mk > 0.0) {
-        const int base_bands = std::clamp(2 * cfg.surface_rings, 16, 60);
-        const std::vector<Spot> subtract = cfg.spot_overlay ? std::vector<Spot>{} : cfg.spots;
-        const auto base = sample_full_sphere(cfg.base_temperature_mk, base_bands, subtract);
-        // Lei T(theta): a>0 liga a distribuição dipolar (polos quentes, equador
-        // frio); a=0 devolve o fundo uniforme. cos(theta_mag)=normal·eixo_B.
-        // Lei de Perez-Azorin por polo. Um polo (base_temperature2<=0): a lei
-        // simetrica de sempre. DOIS polos (Hambaryan): polo 1 no eixo do dipolo
-        // (+B), polo 2 no eixo -B GIRADO por beta (pole2_tilt) no plano
-        // magneto-rotacional. Cada polo contribui so no seu hemisferio proximo
-        // (c>0), somando em T^4; piso T_min unico. beta=0 => polos antipodais
-        // (cada ponto sob um so polo, exatamente como a lei de um dipolo).
+        const int base_bands = cfg.sphere_bands > 0
+            ? std::clamp(cfg.sphere_bands, 8, 4000)
+            : std::clamp(2 * cfg.surface_rings, 16, 60);
+        // Eixos dos polos computados ANTES de amostrar a esfera: as fronteiras
+        // n.eixo = 0 sao as descontinuidades que a quadratura precisa resolver.
         const double a1 = cfg.temperature_peaking;
         const double t_pole1_4 = std::pow(cfg.base_temperature_mk, 4.0);
         const bool two_pole = cfg.base_temperature2_mk > 0.0;
@@ -2147,12 +2481,52 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
                      v.y * cg + kxv.y * sg + k.y * kdv * (1.0 - cg),
                      v.z * cg + kxv.z * sg + k.z * kdv * (1.0 - cg)};
         }
+        const std::vector<Spot> subtract = cfg.spot_overlay ? std::vector<Spot>{} : cfg.spots;
+        std::vector<Vec3> fronteiras{magnetic_axis};
+        if (two_pole) fronteiras.push_back(axis2);
+        const bool usa_gauss = (cfg.quadratura == "gauss");
+        bandas_usadas = usa_gauss ? std::clamp(cfg.mu_nodes, 2, 4000) : base_bands;
+        const auto base = usa_gauss
+            ? sample_sphere_gauss(cfg.base_temperature_mk,
+                                  std::clamp(cfg.mu_nodes, 2, 4000),
+                                  std::clamp(cfg.phi_nodes, 4, 8000), subtract)
+            : sample_full_sphere(cfg.base_temperature_mk, base_bands,
+                                 subtract, fronteiras, cfg.boundary_refine,
+                                 cfg.mesh_phi_offset);
+        // Relato uma vez por processo: pedido, efetivo e pontos. Sem isto nao da
+        // para saber em que resolucao um resultado foi produzido, que e
+        // exatamente o que faltou para pegar o incidente de 04/10/2026.
+        static bool relatado = false;
+        if (!relatado) {
+            relatado = true;
+            if (cfg.quadratura == "gauss") {
+                std::fprintf(stderr,
+                    "superficie: GAUSS mu=%d phi=%d, pontos %zu\n",
+                    std::clamp(cfg.mu_nodes, 2, 4000),
+                    std::clamp(cfg.phi_nodes, 4, 8000), base.size());
+            } else {
+                std::fprintf(stderr,
+                    "superficie: bandas pedidas %d, efetivas %d, pontos %zu\n",
+                    cfg.sphere_bands > 0 ? cfg.sphere_bands : 2 * cfg.surface_rings,
+                    base_bands, base.size());
+            }
+        }
+        // Lei T(theta): a>0 liga a distribuição dipolar (polos quentes, equador
+        // frio); a=0 devolve o fundo uniforme. cos(theta_mag)=normal·eixo_B.
+        // Lei de Perez-Azorin por polo. Um polo (base_temperature2<=0): a lei
+        // simetrica de sempre. DOIS polos (Hambaryan): polo 1 no eixo do dipolo
+        // (+B), polo 2 no eixo -B GIRADO por beta (pole2_tilt) no plano
+        // magneto-rotacional. Cada polo contribui so no seu hemisferio proximo
+        // (c>0), somando em T^4; piso T_min unico. beta=0 => polos antipodais
+        // (cada ponto sob um so polo, exatamente como a lei de um dipolo).
         auto lobe = [](double c, double a, double tp4) -> double {
             if (c <= 0.0) return 0.0;
             const double c2 = c * c, s2 = std::max(0.0, 1.0 - c2);
             return (a > 0.0) ? tp4 * c2 / (c2 + a * s2) : tp4;
         };
-        for (const auto& sample : base) {
+        fisica_local = [&cfg, magnetic_axis, axis2, two_pole, a1, a2, t_pole1_4,
+                        t_pole2_4, t_min4, lobe, rho, local_log_b]
+                       (const SurfaceSample& sample) -> SpectralSurfaceSample {
             const double cmag = dot(sample.normal, magnetic_axis);
             double temperature = cfg.base_temperature_mk;
             const double c1 = cmag;
@@ -2165,16 +2539,20 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
             // Intensidade e direcao no MESMO dipolo: ambas em |cmag|.
             const double c_campo = cfg.field_nearest_pole
                 ? std::max(c1, c2) : std::abs(cmag);
-            surface.push_back({sample.normal, sample.weight, temperature,
-                               dipole_theta_b_deg(cmag, rho), -1,
-                               local_log_b(c_campo)});
-        }
+            return {sample.normal, sample.weight,
+                    sample.t0, sample.t1, sample.phi0, sample.dphi,
+                    temperature, dipole_theta_b_deg(cmag, rho), -1,
+                    local_log_b(c_campo)};
+        };
+        for (const auto& sample : base) surface.push_back(fisica_local(sample));
     }
     for (std::size_t spot_id = 0; spot_id < cfg.spots.size(); ++spot_id) {
         const auto samples = sample_spot(cfg.spots[spot_id], cfg.surface_rings);
         for (const auto& sample : samples) {
             const double cmag = dot(sample.normal, magnetic_axis);
-            surface.push_back({sample.normal, sample.weight, cfg.spots[spot_id].temperature_mk,
+            surface.push_back({sample.normal, sample.weight,
+                               sample.t0, sample.t1, sample.phi0, sample.dphi,
+                               cfg.spots[spot_id].temperature_mk,
                                dipole_theta_b_deg(cmag, rho), static_cast<int>(spot_id),
                                local_log_b(std::abs(cmag))});
         }
@@ -2206,10 +2584,25 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
     const double representative_mk = cfg.base_temperature_mk > 0.0
         ? cfg.base_temperature_mk
         : (cfg.spots.empty() ? 0.0 : cfg.spots.front().temperature_mk);
+    // POR QUE ESTAS TABELAS NAO SAO MAIS `thread_local`, e isto nao e detalhe de
+    // estilo. Elas sao carregadas AQUI, fora da regiao paralela, pela thread
+    // mestre. Enquanto eram `thread_local`, cada thread do laco de fases via a
+    // SUA copia, vazia, e `log_ratio` devolve 0 quando a tabela nao esta
+    // carregada: o endurecimento da atmosfera simplesmente desaparecia nas
+    // fases que caissem em qualquer thread que nao a mestre. Medido antes da
+    // correcao, com 4 fases em 2 threads: as fases 0 e 1 corretas e as fases 2
+    // e 3 em 0,296 e 0,264 do valor certo. Nao era corrida de dados, e por isso
+    // o ThreadSanitizer nao acusou nada: cada thread lia memoria propria.
+    //
+    // Compartilhadas e carregadas antes do laco, elas sao somente lidas dentro
+    // dele, e `log_ratio`, `flux_log_ratio` e `ratio_at` sao const. A carga em
+    // si NAO e protegida, porque acontece fora de qualquer regiao paralela;
+    // chamar write_spectral_grid de dentro de uma regiao paralela exigiria
+    // protege-la.
     double anisotropy = 1.0;
     if (!cfg.anisotropy_table.empty() && cfg.magnetic_field_g > 0.0 && emits) {
-        static thread_local MagneticAnisotropy table;
-        static thread_local std::string loaded_from;
+        static MagneticAnisotropy table;
+        static std::string loaded_from;
         if (loaded_from != cfg.anisotropy_table) {
             table.load(cfg.anisotropy_table);
             loaded_from = cfg.anisotropy_table;
@@ -2229,8 +2622,8 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
     // O espectro real, se houver tabela e campo. Ele entra NO LUGAR do corpo
     // negro; o feixe continua sendo o do modelo de dois modos, porque o
     // espectro não carrega ângulo nenhum.
-    static thread_local NsmaxgTable nsmaxg;
-    static thread_local std::string nsmaxg_loaded_from;
+    static NsmaxgTable nsmaxg;
+    static std::string nsmaxg_loaded_from;
     const bool use_nsmaxg = !cfg.nsmaxg_table.empty() && cfg.magnetic_field_g > 0.0 &&
         emits;
 
@@ -2238,8 +2631,8 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
     // feixe de uma vez porque traz os dois; por isso vem antes das outras na
     // cadeia, e nenhuma forma angular se multiplica por cima dela — isso seria
     // contar o feixe duas vezes.
-    static thread_local AtmosphereTable atmosphere;
-    static thread_local std::string atmosphere_loaded_from;
+    static AtmosphereTable atmosphere;
+    static std::string atmosphere_loaded_from;
     const bool use_atmosphere_table = !cfg.atmosphere_table.empty() && emits;
     if (use_atmosphere_table && atmosphere_loaded_from != cfg.atmosphere_table) {
         atmosphere.load(cfg.atmosphere_table);
@@ -2261,18 +2654,260 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
             redshift / (radius_cm_surface * radius_cm_surface)));
     }
 
+    // Contador relatado em stderr: um refino que nunca dispara produz um
+    // resultado "sem efeito" que na verdade e um no-op, e eu quase reportei um
+    // desses como refutacao.
+    long long limb_cells_refined = 0;
+    const int nb_rel = std::max(1, bandas_usadas);
+    std::vector<double> omega_banda(static_cast<std::size_t>(std::max(1, nb_rel)), 0.0);
+    std::vector<double> peso_banda(static_cast<std::size_t>(std::max(1, nb_rel)), 0.0);
+    std::vector<long long> aceitos_banda(static_cast<std::size_t>(std::max(1, nb_rel)), 0);
+    std::vector<long long> rejeitados_banda(static_cast<std::size_t>(std::max(1, nb_rel)), 0);
+    std::vector<double> omega_imagem(16, 0.0);
+
+    // ACUMULADORES POR FASE, e a razao e a identidade e nao o paralelismo.
+    //
+    // O laco de fases e paralelizavel porque `flux`, `times` e `band_rate` sao
+    // escritos POR INDICE. O que nao era paralelizavel sao estes somadores, que
+    // atravessavam as fases: peso, omega, aceitos, rejeitados, o contador de
+    // limbo e `mean_spectrum`. Somar em paralelo daria corrida; somar com
+    // reducao daria resultado correto mas NAO bit identico, porque a ordem das
+    // adicoes em ponto flutuante mudaria.
+    //
+    // A saida e guardar a contribuicao de cada fase em sua propria faixa e
+    // somar no fim NA ORDEM DAS FASES. Isso reproduz exatamente a sequencia de
+    // adicoes do caminho serial: cada um destes vetores recebia, por fase, as
+    // mesmas adicoes na mesma ordem interna, e as fases vinham em ordem. Logo a
+    // igualdade e bit a bit, e nao "dentro da tolerancia".
+    //
+    // Custo de memoria: nb_rel x time_bins doubles por acumulador. A 480 bandas
+    // e 160 fases sao 614 KB cada, e por isso nao ha caminho condicional.
+    const std::size_t nbz = static_cast<std::size_t>(std::max(1, nb_rel));
+    const std::size_t ntz = static_cast<std::size_t>(std::max(1, cfg.time_bins));
+    std::vector<double> omega_banda_f(nbz * ntz, 0.0);
+    std::vector<double> peso_banda_f(nbz * ntz, 0.0);
+    std::vector<long long> aceitos_banda_f(nbz * ntz, 0);
+    std::vector<long long> rejeitados_banda_f(nbz * ntz, 0);
+    std::vector<double> omega_imagem_f(16 * ntz, 0.0);
+    std::vector<long long> limbo_f(ntz, 0);
+    std::vector<int> imagens_f(ntz, 1);
+    std::vector<double> media_f(static_cast<std::size_t>(cfg.energy_bins) * ntz, 0.0);
+    //: A MALHA EM psi_0, centrada no observador, construida POR FASE.
+    //:
+    //: Ela tem de ser por fase porque a direcao do observador NO REFERENCIAL DO
+    //: CORPO gira com a fase, ao contrario da malha em (theta, phi), que e fixa
+    //: no corpo e serve as 32 fases. Isso multiplica o custo de construcao por
+    //: time_bins, e o custo e reportado junto do resultado.
+    //:
+    //: AS BORDAS SAO ALINHADAS as fronteiras de visibilidade, psi_max e
+    //: 2 pi - psi_max, em vez de refinadas. Esta e uma diferenca de DESENHO
+    //: entre as duas malhas, e nao mera mudanca de coordenadas: o refino de
+    //: limbo da producao decide por um predicado em t0 e phi0, que sao
+    //: coordenadas do corpo e nao tem o mesmo significado aqui. Alinhar a borda
+    //: resolve a descontinuidade exatamente; refinar a aproxima.
+    //:
+    //: `dphi` fica em ZERO de proposito, para que o predicado do refino de
+    //: limbo nao dispare sobre campos que nao significam o que ele supoe.
+    auto malha_em_psi0 = [&](double arrival_phase) {
+        std::vector<SpectralSurfaceSample> malha;
+        const int nb = cfg.psi_bandas > 0 ? cfg.psi_bandas
+                                          : std::max(8, cfg.sphere_bands);
+        const double incl_rad = deg(cfg.inclination_deg);
+        const Vec3 obs_fixo{std::sin(incl_rad), 0.0, std::cos(incl_rad)};
+        Vec3 e1 = std::abs(obs_fixo.z) < 0.9 ? Vec3{0.0, 0.0, 1.0}
+                                             : Vec3{1.0, 0.0, 0.0};
+        e1 = unit(e1 + (-dot(e1, obs_fixo)) * obs_fixo);
+        const Vec3 e2 = unit(Vec3{obs_fixo.y * e1.z - obs_fixo.z * e1.y,
+                                  obs_fixo.z * e1.x - obs_fixo.x * e1.z,
+                                  obs_fixo.x * e1.y - obs_fixo.y * e1.x});
+        // Os nos do integrando: onde a aceitacao de cada imagem troca.
+        std::vector<double> nos{0.0, pi};
+        for (const double no : {rays.psi_max(), 2.0 * pi - rays.psi_max(),
+                                rays.psi_min()}) {
+            if (no > 1.0e-12 && no < pi - 1.0e-12) nos.push_back(no);
+        }
+        std::sort(nos.begin(), nos.end());
+        nos.erase(std::unique(nos.begin(), nos.end(),
+                              [](double x, double y) {
+                                  return std::abs(x - y) < 1.0e-12;
+                              }), nos.end());
+        for (std::size_t i = 0; i + 1 < nos.size(); ++i) {
+            const double a0 = nos[i], a1 = nos[i + 1];
+            const int quantas = std::max(1, static_cast<int>(
+                std::llround(nb * (a1 - a0) / pi)));
+            for (int j = 0; j < quantas; ++j) {
+                const double pa = a0 + (a1 - a0) * j / quantas;
+                const double pb = a0 + (a1 - a0) * (j + 1) / quantas;
+                const double pm = 0.5 * (pa + pb);
+                const int azimutes = std::max(4, static_cast<int>(
+                    std::ceil(2.0 * nb * std::sin(pm))));
+                const double dph = 2.0 * pi / azimutes;
+                const double area = (std::cos(pa) - std::cos(pb)) * dph;
+                for (int ia = 0; ia < azimutes; ++ia) {
+                    const double ph = dph * (ia + 0.5);
+                    const Vec3 n_agora = std::cos(pm) * obs_fixo +
+                        (std::sin(pm) * std::cos(ph)) * e1 +
+                        (std::sin(pm) * std::sin(ph)) * e2;
+                    SurfaceSample bruta{};
+                    // o motor gira a normal por arrival_phase para comparar com
+                    // o observador, entao desgiramos antes
+                    bruta.normal = rotate_about_z(n_agora, -arrival_phase);
+                    bruta.weight = area;
+                    bruta.t0 = bruta.t1 = pm;
+                    bruta.phi0 = ph;
+                    bruta.dphi = 0.0;     // desliga o predicado do refino
+                    malha.push_back(fisica_local ? fisica_local(bruta)
+                        : SpectralSurfaceSample{bruta.normal, bruta.weight,
+                              bruta.t0, bruta.t1, bruta.phi0, bruta.dphi,
+                              cfg.base_temperature_mk, 0.0, -1, 0.0});
+                }
+            }
+        }
+        return malha;
+    };
+    if (cfg.malha_psi0) {
+        // Uma vez, fora do laco: constroi a malha da fase zero so para relatar
+        // o tamanho. Custa uma fase a mais e tira o `static` de dentro da
+        // regiao paralela.
+        const std::vector<SpectralSurfaceSample> amostra_relato = malha_em_psi0(0.0);
+        std::fprintf(stderr, "malha psi_0: bandas %d, pontos %zu por fase\n",
+                     cfg.psi_bandas > 0 ? cfg.psi_bandas
+                                        : std::max(8, cfg.sphere_bands),
+                     amostra_relato.size());
+    }
+
+    // PARALELISMO NAS FASES. As fases sao independentes: `times`, `flux` e
+    // `band_rate` sao escritos por indice, a malha em psi_0 e local e todos os
+    // somadores que atravessavam fases foram para buffers por fase, reduzidos
+    // depois NA ORDEM. Com isso a previsao e identica bit a bit, qualquer que
+    // seja o numero de threads, e isso e para ser MEDIDO e nao suposto.
+    //
+    // `schedule(static)` de proposito: o custo por fase e praticamente
+    // constante, e um escalonamento dinamico tornaria a atribuicao de fases a
+    // threads dependente do tempo, o que nao muda o resultado mas tira a
+    // reprodutibilidade do perfil de desempenho.
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static) num_threads(cfg.threads)
+#endif
     for (int it = 0; it < cfg.time_bins; ++it) {
         times[it] = (it + 0.5) * cfg.period_s / cfg.time_bins;
-        const double arrival_phase = 2.0 * pi * times[it] / cfg.period_s;
+        // A SOMA E CONDICIONAL DE PROPOSITO. Escrever
+        //     2 pi * (times[it]/P + offset)
+        // mudaria a ordem das operacoes de ponto flutuante mesmo com offset
+        // zero, porque (2 pi . t)/P e 2 pi . (t/P) nao sao a mesma conta em
+        // double. Com a guarda, offset zero deixa a expressao INTACTA, e a
+        // previsao antiga e reproduzida exatamente. O criterio e a previsao e o
+        // ln L, nao o hash do binario, que muda por existir esta flag.
+        double arrival_phase = 2.0 * pi * times[it] / cfg.period_s;
+        if (cfg.observation_phase_offset_cycles != 0.0) {
+            arrival_phase += 2.0 * pi * cfg.observation_phase_offset_cycles;
+        }
         std::vector<RayContribution> contributions;
         contributions.reserve(surface.size() * static_cast<std::size_t>(cfg.max_images));
-        for (const auto& sample : surface) {
+        // REFINO DA FRONTEIRA DE VISIBILIDADE, por fase.
+        //
+        // As fronteiras termicas n.eixo = 0 sao resolvidas na AMOSTRAGEM, uma
+        // vez por avaliacao, porque nao dependem da fase. A fronteira do disco
+        // visivel depende: ela e psi_branch saindo da faixa que a tabela de
+        // desvio cobre, e gira com a estrela. Por isso ela nao entrava em
+        // refino algum, e a decisao de visibilidade era tudo ou nada pelo
+        // ponto medio da celula.
+        //
+        // Detectar nao precisa de tracado: basta comparar psi_branch dos
+        // quatro cantos com [psi_min, psi_max]. So as celulas em que os cantos
+        // DISCORDAM sao subdivididas, em K x K, com area exata
+        // (cos ta - cos tb) dphi / K, que soma de volta ao peso do pai.
+        //
+        // As sub-celulas herdam temperatura, theta_B e lg|B| do pai de
+        // proposito: o objetivo e isolar a VISIBILIDADE, mantendo os demais
+        // componentes fixos. K = 1 reproduz o caminho historico bit a bit.
+        const double incl_rad = deg(cfg.inclination_deg);
+        const Vec3 observador{std::sin(incl_rad), 0.0, std::cos(incl_rad)};
+        auto visivel_em = [&](double tt, double pp, int ordem) -> bool {
+            const Vec3 c{std::sin(tt) * std::cos(pp), std::sin(tt) * std::sin(pp),
+                         std::cos(tt)};
+            const Vec3 n = rotate_about_z(c, arrival_phase);
+            const double psi0 = std::acos(clamp_unit(dot(n, observador)));
+            double psi_branch{};
+            if (ordem == 0) psi_branch = psi0;
+            else if (ordem % 2 == 1) psi_branch = (ordem + 1) * pi - psi0;
+            else psi_branch = ordem * pi + psi0;
+            return psi_branch >= rays.psi_min() && psi_branch <= rays.psi_max();
+        };
+        // LOCAL DA FASE, e nao compartilhada: a malha em psi_0 depende da fase e,
+        // partilhada entre threads, seria corrida de escrita. O relato em stderr
+        // saiu daqui porque um `static bool` dentro de regiao paralela nao
+        // garante uma unica impressao; ele agora acontece antes do laco.
+        std::vector<SpectralSurfaceSample> superficie_psi0_local;
+        if (cfg.malha_psi0) superficie_psi0_local = malha_em_psi0(arrival_phase);
+        const std::vector<SpectralSurfaceSample>& amostras =
+            cfg.malha_psi0 ? superficie_psi0_local : surface;
+        for (const auto& sample : amostras) {
             for (int image_order = 0; image_order < cfg.max_images; ++image_order) {
+                int kl = 1;
+                if (cfg.limb_refine > 1 && sample.dphi > 0.0) {
+                    const bool v00 = visivel_em(sample.t0, sample.phi0, image_order);
+                    const bool v01 = visivel_em(sample.t0, sample.phi0 + sample.dphi, image_order);
+                    const bool v10 = visivel_em(sample.t1, sample.phi0, image_order);
+                    const bool v11 = visivel_em(sample.t1, sample.phi0 + sample.dphi, image_order);
+                    if (!(v00 == v01 && v01 == v10 && v10 == v11)) {
+                        kl = std::clamp(cfg.limb_refine, 2, 256);
+                    }
+                }
+                if (kl > 1) {
+                    ++limbo_f[static_cast<std::size_t>(it)];
+                    for (int iu = 0; iu < kl; ++iu) {
+                        const double ta = sample.t0 + (sample.t1 - sample.t0) * iu / kl;
+                        const double tb = sample.t0 + (sample.t1 - sample.t0) * (iu + 1) / kl;
+                        const double tm = 0.5 * (ta + tb);
+                        const double area = (std::cos(ta) - std::cos(tb)) * sample.dphi / kl;
+                        for (int iv = 0; iv < kl; ++iv) {
+                            const double pm = sample.phi0 + sample.dphi * (iv + 0.5) / kl;
+                            SpectralSurfaceSample sub = sample;
+                            sub.normal = {std::sin(tm) * std::cos(pm),
+                                          std::sin(tm) * std::sin(pm), std::cos(tm)};
+                            sub.weight = area;
+                            RayContribution contribution;
+                            const int banda = std::min(nb_rel - 1, std::max(0,
+                                static_cast<int>(sub.t0 * nb_rel / pi)));
+                            peso_banda_f[static_cast<std::size_t>(it) * nbz + static_cast<std::size_t>(banda)] +=
+                                sub.weight / cfg.time_bins;
+                            if (trace_spectral_contribution(cfg, rays, u, sub, arrival_phase,
+                                                            image_order, contribution)) {
+                                contribution.band = banda;
+                                omega_banda_f[static_cast<std::size_t>(it) * nbz + static_cast<std::size_t>(banda)] +=
+                                    contribution.solid_angle_sr / cfg.time_bins;
+                                if (image_order < 16)
+                                    omega_imagem_f[static_cast<std::size_t>(it) * 16 + static_cast<std::size_t>(image_order)] +=
+                                        contribution.solid_angle_sr / cfg.time_bins;
+                                ++aceitos_banda_f[static_cast<std::size_t>(it) * nbz + static_cast<std::size_t>(banda)];
+                                contributions.push_back(contribution);
+                                imagens_f[static_cast<std::size_t>(it)] = std::max(imagens_f[static_cast<std::size_t>(it)], image_order + 1);
+                            } else {
+                                ++rejeitados_banda_f[static_cast<std::size_t>(it) * nbz + static_cast<std::size_t>(banda)];
+                            }
+                        }
+                    }
+                    continue;
+                }
                 RayContribution contribution;
+                const int banda = std::min(nb_rel - 1, std::max(0,
+                    static_cast<int>(sample.t0 * nb_rel / pi)));
+                peso_banda_f[static_cast<std::size_t>(it) * nbz + static_cast<std::size_t>(banda)] +=
+                    sample.weight / cfg.time_bins;
                 if (trace_spectral_contribution(cfg, rays, u, sample, arrival_phase,
                                                 image_order, contribution)) {
+                    contribution.band = banda;
+                    omega_banda_f[static_cast<std::size_t>(it) * nbz + static_cast<std::size_t>(banda)] +=
+                        contribution.solid_angle_sr / cfg.time_bins;
+                    if (image_order < 16)
+                        omega_imagem_f[static_cast<std::size_t>(it) * 16 + static_cast<std::size_t>(image_order)] +=
+                            contribution.solid_angle_sr / cfg.time_bins;
+                    ++aceitos_banda_f[static_cast<std::size_t>(it) * nbz + static_cast<std::size_t>(banda)];
                     contributions.push_back(contribution);
-                    images_used = std::max(images_used, image_order + 1);
+                    imagens_f[static_cast<std::size_t>(it)] = std::max(imagens_f[static_cast<std::size_t>(it)], image_order + 1);
+                } else {
+                    ++rejeitados_banda_f[static_cast<std::size_t>(it) * nbz + static_cast<std::size_t>(banda)];
                 }
             }
         }
@@ -2358,8 +2993,30 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
             }
             flux[static_cast<std::size_t>(it) * cfg.energy_bins + ie] = value;
             band_rate[it] += value * energy_width;
-            mean_spectrum[ie] += value / cfg.time_bins;
+            // Uma adicao por (fase, energia): guardada e somada depois, na
+            // ordem das fases, o que reproduz a sequencia serial exatamente.
+            media_f[static_cast<std::size_t>(it) * cfg.energy_bins + ie] =
+                value / cfg.time_bins;
         }
+    }
+
+    // REDUCAO NA ORDEM DAS FASES. E aqui que a identidade bit a bit se decide:
+    // as adicoes acontecem na mesma sequencia do caminho serial.
+    for (int it = 0; it < cfg.time_bins; ++it) {
+        const std::size_t base_b = static_cast<std::size_t>(it) * nbz;
+        for (std::size_t ib = 0; ib < nbz; ++ib) {
+            peso_banda[ib] += peso_banda_f[base_b + ib];
+            omega_banda[ib] += omega_banda_f[base_b + ib];
+            aceitos_banda[ib] += aceitos_banda_f[base_b + ib];
+            rejeitados_banda[ib] += rejeitados_banda_f[base_b + ib];
+        }
+        for (std::size_t io = 0; io < 16; ++io)
+            omega_imagem[io] += omega_imagem_f[static_cast<std::size_t>(it) * 16 + io];
+        limb_cells_refined += limbo_f[static_cast<std::size_t>(it)];
+        images_used = std::max(images_used, imagens_f[static_cast<std::size_t>(it)]);
+        for (int ie = 0; ie < cfg.energy_bins; ++ie)
+            mean_spectrum[ie] +=
+                media_f[static_cast<std::size_t>(it) * cfg.energy_bins + ie];
     }
 
     // A absorção acontece no caminho, entre a estrela e o telescópio: aplica-se
@@ -2411,30 +3068,87 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
     // 0,0003% acima de 2 keV — e só a fração DESSES que a redistribuição
     // empurra para dentro da banda é que falta. Sub-percentual aqui. Para uma
     // fonte mais dura, ou banda mais estreita, deixa de ser.
-    std::vector<double> detected_rate(flux.size(), 0.0);
-    std::vector<ResponseKernel> response_kernels;
-    response_kernels.reserve(cfg.energy_bins);
-    for (double true_energy : energy_centers) {
-        response_kernels.push_back(response.kernel(true_energy, energy_edges));
-    }
-    for (int it = 0; it < cfg.time_bins; ++it) {
-        for (int true_bin = 0; true_bin < cfg.energy_bins; ++true_bin) {
-            const double incident_density = flux[static_cast<std::size_t>(it) * cfg.energy_bins + true_bin];
-            const ResponseKernel& kernel = response_kernels[true_bin];
-            if (!(incident_density > 0.0 && kernel.area_cm2 > 0.0)) continue;
-            if (response.ideal()) {
-                detected_rate[static_cast<std::size_t>(it) * cfg.energy_bins + true_bin] += incident_density;
-                continue;
-            }
-            const double accepted_rate = incident_density * energy_width * kernel.area_cm2;
-            for (int channel = 0; channel < cfg.energy_bins; ++channel) {
-                detected_rate[static_cast<std::size_t>(it) * cfg.energy_bins + channel] +=
-                    accepted_rate * kernel.channel_probability[channel] / energy_width;
+    // A CADEIA ESPECIFICA DA OBSERVACAO, a partir da emissao comum `flux`:
+    // deslocamento inteiro de fase, resposta, suavizacao, tempo morto. Extraida
+    // numa funcao para que a rota multi-observacao e a de sempre percorram
+    // EXATAMENTE o mesmo codigo, em vez de duas copias que divergem com o tempo.
+    auto cadeia_da_observacao = [&](const InstrumentResponse& resp,
+                                    int desloca_bins, double resolucao_us,
+                                    double tempo_morto_us) {
+        std::vector<double> saida(flux.size(), 0.0);
+        std::vector<ResponseKernel> kernels;
+        kernels.reserve(cfg.energy_bins);
+        for (double true_energy : energy_centers) {
+            kernels.push_back(resp.kernel(true_energy, energy_edges));
+        }
+        const int N = cfg.time_bins;
+        for (int it = 0; it < N; ++it) {
+            // DESLOCAR SO A FONTE: a fase lida da emissao comum e it + k, que e
+            // a convencao medida m_offset[p] = m_0[p + offset.N]. A exposicao e
+            // o fundo NAO entram aqui, ficam no referencial observado.
+            const int origem = ((it + desloca_bins) % N + N) % N;
+            for (int true_bin = 0; true_bin < cfg.energy_bins; ++true_bin) {
+                const double incident_density =
+                    flux[static_cast<std::size_t>(origem) * cfg.energy_bins + true_bin];
+                const ResponseKernel& kernel = kernels[true_bin];
+                if (!(incident_density > 0.0 && kernel.area_cm2 > 0.0)) continue;
+                if (resp.ideal()) {
+                    saida[static_cast<std::size_t>(it) * cfg.energy_bins + true_bin] +=
+                        incident_density;
+                    continue;
+                }
+                const double accepted_rate = incident_density * energy_width * kernel.area_cm2;
+                for (int channel = 0; channel < cfg.energy_bins; ++channel) {
+                    saida[static_cast<std::size_t>(it) * cfg.energy_bins + channel] +=
+                        accepted_rate * kernel.channel_probability[channel] / energy_width;
+                }
             }
         }
-    }
-    apply_temporal_resolution(detected_rate, cfg.time_bins, cfg.energy_bins, cfg.period_s,
-                              cfg.instrument_time_resolution_us);
+        apply_temporal_resolution(saida, cfg.time_bins, cfg.energy_bins, cfg.period_s,
+                                  resolucao_us);
+        // TEMPO MORTO: depende da taxa DEPOIS da resposta, logo e especifico da
+        // observacao e nao pode entrar na emissao comum.
+        const double morto_s = tempo_morto_us * 1.0e-6;
+        if (morto_s > 0.0) {
+            for (int it = 0; it < cfg.time_bins; ++it) {
+                double bruta = 0.0;
+                for (int ie = 0; ie < cfg.energy_bins; ++ie) {
+                    bruta += saida[static_cast<std::size_t>(it) * cfg.energy_bins + ie]
+                             * energy_width;
+                }
+                const double viva = 1.0 / (1.0 + bruta * morto_s);
+                for (int ie = 0; ie < cfg.energy_bins; ++ie) {
+                    saida[static_cast<std::size_t>(it) * cfg.energy_bins + ie] *= viva;
+                }
+            }
+        }
+        return saida;
+    };
+
+    //: Tolerancia para reconhecer um offset como multiplo inteiro de 1/N.
+    //: Declarada, e nao implicita: 1e-9 em bins, isto e 3e-11 ciclos a 32 bins.
+    constexpr double TOLERANCIA_OFFSET_INTEIRO = 1.0e-9;
+    auto desloca_de = [&](double offset_cycles, const std::string& quem) {
+        const double k = offset_cycles * cfg.time_bins;
+        const double arredondado = std::nearbyint(k);
+        if (std::abs(k - arredondado) > TOLERANCIA_OFFSET_INTEIRO) {
+            std::ostringstream erro;
+            erro << "offset de " << offset_cycles << " ciclos na observacao "
+                 << quem << " vale " << k << " bins, que nao e inteiro dentro da "
+                 << "tolerancia " << TOLERANCIA_OFFSET_INTEIRO
+                 << ". A rota multi-observacao RECUSA offset fracionario em vez "
+                 << "de interpolar: uma grade de " << cfg.time_bins << " fases "
+                 << "nao contem as fases pedidas. Para sub-bin exato, use N.M "
+                 << "fases com M IMPAR e offsets multiplos de 1/(N.M)";
+            throw std::runtime_error(erro.str());
+        }
+        const long long inteiro = static_cast<long long>(arredondado);
+        return static_cast<int>(((inteiro % cfg.time_bins) + cfg.time_bins)
+                                % cfg.time_bins);
+    };
+
+    std::vector<double> detected_rate = cadeia_da_observacao(
+        response, 0, cfg.instrument_time_resolution_us, 0.0);
     std::vector<double> detected_band_rate(cfg.time_bins, 0.0);
     std::vector<double> mean_detected_spectrum(cfg.energy_bins, 0.0);
     const double dead_time_s = cfg.instrument_dead_time_us * 1.0e-6;
@@ -2467,6 +3181,33 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
         std::cout << ']';
     };
 
+    if (cfg.report_bands) {
+        double soma_omega = 0.0, soma_peso = 0.0;
+        long long ac = 0, rj = 0;
+        for (std::size_t i = 0; i < omega_banda.size(); ++i) {
+            soma_omega += omega_banda[i]; soma_peso += peso_banda[i];
+            ac += aceitos_banda[i]; rj += rejeitados_banda[i];
+        }
+        std::fprintf(stderr, "bandas: %d | soma omega = %.12e | soma peso = %.12e"
+                             " | aceitos = %lld | rejeitados = %lld\n",
+                     nb_rel, soma_omega, soma_peso, ac, rj);
+        for (std::size_t i = 0; i < omega_imagem.size(); ++i) {
+            if (omega_imagem[i] != 0.0)
+                std::fprintf(stderr, "imagem %zu: omega = %.12e\n", i, omega_imagem[i]);
+        }
+        std::fprintf(stderr, "#banda t_meio omega peso aceitos rejeitados\n");
+        for (std::size_t i = 0; i < omega_banda.size(); ++i) {
+            const double tm = pi * (static_cast<double>(i) + 0.5) / nb_rel;
+            std::fprintf(stderr, "B %zu %.10f %.12e %.12e %lld %lld\n",
+                         i, tm, omega_banda[i], peso_banda[i],
+                         aceitos_banda[i], rejeitados_banda[i]);
+        }
+    }
+    if (cfg.limb_refine > 1) {
+        std::fprintf(stderr, "limbo: %lld celulas refinadas em %dx%d, somadas as %d fases\n",
+                     limb_cells_refined, cfg.limb_refine, cfg.limb_refine,
+                     cfg.time_bins);
+    }
     std::cout << "{\"status\":\"ok\",\"product\":\"spectral_grid\""
               << ",\"model\":\"Schwarzschild+Doppler+blackbody"
               << (cfg.line_depth > 0.0 ? "+gaussian_line" : "")
@@ -2497,6 +3238,8 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
               << ",\"response_rows\":" << response.response_rows()
               << ",\"time_resolution_us\":" << number(cfg.instrument_time_resolution_us)
               << ",\"dead_time_us\":" << number(cfg.instrument_dead_time_us) << "}"
+              << ",\"observation_phase_offset_cycles\":"
+              << number(cfg.observation_phase_offset_cycles)
               << ",\"absorption\":{\"applied\":" << (absorbed ? "true" : "false")
               << ",\"nh_1e22\":" << number(cfg.nh_1e22)
               << ",\"model\":\"" << (absorbed ? "TBabs_wilm" : "none") << "\"}"
@@ -2554,13 +3297,79 @@ void write_spectral_grid(const Config& cfg, const RayTable& rays, double u,
         }
         std::cout << ']';
     }
-    std::cout << "]}\n";
+    std::cout << "]";
+    // UMA GRADE POR OBSERVACAO, cada uma com o SEU identificador, a SUA
+    // resposta e o SEU offset efetivo ao lado. Associacao por ordem seria
+    // fragil: quem consome nao tem como notar uma troca.
+    if (!cfg.observations.empty()) {
+        std::vector<std::unique_ptr<InstrumentResponse>> locais;
+        if (!prepared_slots) {
+            for (const auto& slot : cfg.observations) {
+                Config c = cfg;
+                c.instrument_profile = slot.profile;
+                c.instrument_response = slot.response;
+                locais.push_back(std::make_unique<InstrumentResponse>(c));
+            }
+        }
+        const auto& respostas = prepared_slots ? *prepared_slots : locais;
+        if (respostas.size() != cfg.observations.size()) {
+            throw std::runtime_error("respostas preparadas em numero diferente "
+                                     "do de observacoes");
+        }
+        std::cout << ",\"observations\":[";
+        for (std::size_t s = 0; s < cfg.observations.size(); ++s) {
+            const auto& slot = cfg.observations[s];
+            const int desloca = desloca_de(slot.offset_cycles, slot.id);
+            const std::vector<double> grade = cadeia_da_observacao(
+                *respostas[s], desloca, slot.time_resolution_us,
+                slot.dead_time_us);
+            if (s) std::cout << ',';
+            std::cout << "{\"id\":\"" << slot.id << "\""
+                      << ",\"response\":\"" << slot.response << "\""
+                      << ",\"profile\":\"" << slot.profile << "\""
+                      << ",\"offset_cycles\":" << number(slot.offset_cycles)
+                      << ",\"offset_bins\":" << desloca
+                      << ",\"time_resolution_us\":" << number(slot.time_resolution_us)
+                      << ",\"dead_time_us\":" << number(slot.dead_time_us)
+                      // O PERIODO, e o desvio contra o comum. A emissao reusada
+                      // foi calculada com o periodo comum, nao com este.
+                      << ",\"period_s\":" << number(slot.period_s)
+                      << ",\"period_common_s\":" << number(cfg.period_s)
+                      << ",\"period_relative_deviation\":"
+                      << number(slot.period_s > 0.0
+                                ? (slot.period_s - cfg.period_s) / cfg.period_s
+                                : 0.0)
+                      << ",\"detected_count_rate\":[";
+            for (int it = 0; it < cfg.time_bins; ++it) {
+                if (it) std::cout << ',';
+                std::cout << '[';
+                for (int ie = 0; ie < cfg.energy_bins; ++ie) {
+                    if (ie) std::cout << ',';
+                    std::cout << number(
+                        grade[static_cast<std::size_t>(it) * cfg.energy_bins + ie]);
+                }
+                std::cout << ']';
+            }
+            std::cout << "]}";
+        }
+        std::cout << "]";
+    }
+    std::cout << "}\n";
 }
 
 int run_fit_worker(const Config& base) {
     // Long-lived protocol used by the Bayesian fitting backend.  Instrument
     // calibration is immutable during a fit and is therefore loaded once.
     const InstrumentResponse response(base);
+    // As respostas das observacoes tambem sao imutaveis durante o ajuste, e
+    // reler 13 RMFs por avaliacao seria custo puro. Preparadas uma vez.
+    std::vector<std::unique_ptr<InstrumentResponse>> respostas_das_observacoes;
+    for (const auto& slot : base.observations) {
+        Config c = base;
+        c.instrument_profile = slot.profile;
+        c.instrument_response = slot.response;
+        respostas_das_observacoes.push_back(std::make_unique<InstrumentResponse>(c));
+    }
     // Calibração e tabela de absorção são imutáveis durante o ajuste; só a
     // coluna N_H varia, e ela chega no fim de cada linha de parâmetros.
     std::unique_ptr<InterstellarAbsorption> absorption;
@@ -2743,8 +3552,10 @@ int run_fit_worker(const Config& base) {
             if (!(u > 0.0 && u < 0.985)) {
                 throw std::runtime_error("fit worker compactness is outside physical bounds");
             }
-            RayTable rays(u);
-            write_spectral_grid(cfg, rays, u, &response, absorption.get());
+            RayTable rays(u, cfg.ray_table_size);
+            write_spectral_grid(cfg, rays, u, &response, absorption.get(),
+                                respostas_das_observacoes.empty()
+                                    ? nullptr : &respostas_das_observacoes);
         } catch (const std::exception& error) {
             std::string message = error.what();
             std::replace(message.begin(), message.end(), '"', '\'');
@@ -2760,7 +3571,7 @@ int run(const Config& cfg) {
     const auto started = std::chrono::steady_clock::now();
     const double u = 2.0 * gm_sun_over_c2_km * cfg.mass_solar / cfg.radius_km;
     if (u >= 0.985) throw std::runtime_error("radius is too close to or inside the Schwarzschild radius");
-    RayTable rays(u);
+    RayTable rays(u, cfg.ray_table_size);
     if (cfg.transfer_table) {
         write_transfer_table(cfg, rays, u);
         return 0;
@@ -2856,6 +3667,17 @@ int run(const Config& cfg) {
 
 } // namespace
 
+// MAGNUS_SEM_MAIN existe SO para o executavel exclusivo de diagnostico
+// engine/diag_plano_imagem.cpp poder reaproveitar este arquivo inteiro, com a
+// RayTable, a Config, o parse_args e a intensidade de Planck, sem duplicar
+// codigo: um controle independente que NAO compartilhasse esses componentes nao
+// distinguiria erro de quadratura de erro de componente compartilhado, que e
+// exatamente o que o portao P1 precisa separar.
+//
+// O binario de producao e compilado SEM a macro, logo o pre-processador devolve
+// este arquivo identico ao de antes, e o sha256 de build/magnus_engine tem de
+// sair byte a byte igual. O relato traz os dois hashes.
+#ifndef MAGNUS_SEM_MAIN
 int main(int argc, char** argv) {
     try {
         return run(parse_args(argc, argv));
@@ -2864,3 +3686,4 @@ int main(int argc, char** argv) {
         return 2;
     }
 }
+#endif

@@ -57,11 +57,52 @@ def fold_obs(path: Path):
     return grid, exp, meta, period
 
 
-def read_background(events_path: Path):
-    cand = list(events_path.parent.glob("*background*.csv"))
+def read_background(events_path: Path, exigir: bool = True):
+    """Fundo da observacao, em ct/s/keV, interpolado nos centros de energia.
+
+    DOIS SILENCIOS CORRIGIDOS, ambos encontrados na auditoria de 06/10/2026:
+
+    1. Antes, sem CSV a funcao devolvia ZEROS. Uma observacao sem fundo entrava
+       como fundo nulo e nada registrava isso: o co-add saia com fundo
+       subestimado e o ajuste creditava a estrela contagens do ceu e do detector.
+       A reconstrucao de 06/10 mostrou que as 13 observacoes TINHAM CSV e que o
+       vetor guardado e reproduzido com concordancia numerica, 8e-15 relativo,
+       o que NAO e identidade binaria mas fecha a composicao: o incidente nao
+       ocorreu. Mas o silencio estava la, e agora e erro.
+
+    2. np.interp EXTRAPOLA PLANO fora da faixa do CSV, por construcao. Com a
+       faixa do arquivo cobrindo 0,1528 a 1,1985 keV e os centros em 0,1631 a
+       1,1869 isso nao acontece hoje, verificado nas 13, mas um CSV de banda
+       menor passaria em silencio.
+
+    `exigir=False` mantem o comportamento antigo para quem precise dele, e
+    continua avisando.
+    """
+    cand = sorted(events_path.parent.glob("*background*.csv"))
     if not cand:
+        if exigir:
+            raise FileNotFoundError(
+                "sem tabela de fundo para %s: nenhum *background*.csv em %s. "
+                "Um fundo ausente nao pode entrar como zero em silencio; gere a "
+                "tabela com o XREDUX ou passe exigir=False se a ausencia for "
+                "deliberada." % (events_path.name, events_path.parent))
+        print("AVISO: sem tabela de fundo para %s; entrando como ZERO"
+              % events_path.name, file=sys.stderr, flush=True)
         return np.zeros(ENERGY_BINS)
     d = np.loadtxt(cand[0], delimiter=",", comments="#")
+    lo, hi = float(d[:, 0].min()), float(d[:, 0].max())
+    if lo > ECEN.min() or hi < ECEN.max():
+        mensagem = ("a tabela de fundo %s cobre %.4f a %.4f keV, e os centros de "
+                    "energia pedem %.4f a %.4f: np.interp extrapolaria PLANO fora "
+                    "dessa faixa, em silencio."
+                    % (cand[0].name, lo, hi, ECEN.min(), ECEN.max()))
+        if exigir:
+            raise ValueError(mensagem)
+        print("AVISO: " + mensagem, file=sys.stderr, flush=True)
+    if len(cand) > 1:
+        print("AVISO: %d tabelas de fundo em %s; usando %s"
+              % (len(cand), events_path.parent, cand[0].name),
+              file=sys.stderr, flush=True)
     return np.interp(ECEN, d[:, 0], d[:, 1])
 
 

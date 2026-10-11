@@ -101,7 +101,8 @@ def lightcurve(LC, lo, nph, out):
     ph = (np.arange(nph) + 0.5) / nph
     ph2 = np.concatenate([ph, ph + 1]); dbl = lambda x: np.concatenate([x, x])
     P = np.percentile(LC, [2.5, 16, 50, 84, 97.5], axis=0)
-    ax.fill_between(ph2, dbl(P[0]), dbl(P[4]), color=S2, label=r"$2\sigma$")
+    ax.fill_between(ph2, dbl(P[0]), dbl(P[4]), color=S2,
+                    label=r"$2\sigma$, expected counts")
     ax.fill_between(ph2, dbl(P[1]), dbl(P[3]), color=S1, label=r"$1\sigma$")
     ax.plot(ph2, dbl(P[2]), color=MED, lw=1.8, label="Posterior median")
     ax.errorbar(ph2, dbl(lo), yerr=np.sqrt(dbl(lo)), fmt="o", ms=4, color=DATA,
@@ -122,21 +123,94 @@ def lightcurve(LC, lo, nph, out):
 
 
 def spectrum(SP, so, energy, out):
-    fig, ax = plt.subplots(figsize=(6.4, 4.4))
+    """Espectro somado em fase, com painel de residuos.
+
+    O painel de baixo entrou a pedido de arbitragem: concordancia visual em escala
+    logaritmica nao resolve uma discrepancia estatistica, e o ajuste tem chi2 de
+    2,1 por bin. O residuo e padronizado por Poisson, (obs - modelo)/sqrt(modelo),
+    e as faixas marcam 1 e 2 sigma.
+    """
+    fig, (ax, axr) = plt.subplots(2, 1, figsize=(6.4, 5.4), sharex=True,
+                                  gridspec_kw=dict(height_ratios=[3.0, 1.0], hspace=0.06))
     Q = np.percentile(SP, [2.5, 16, 50, 84, 97.5], axis=0)
-    ax.fill_between(energy, Q[0], Q[4], color=S2, label=r"$2\sigma$")
+    ax.fill_between(energy, Q[0], Q[4], color=S2,
+                    label=r"$2\sigma$, expected counts")
     ax.fill_between(energy, Q[1], Q[3], color=S1, label=r"$1\sigma$")
     ax.plot(energy, Q[2], color=MED, lw=1.8, label="Posterior median")
     ax.errorbar(energy, so, yerr=np.sqrt(np.maximum(so, 1)), fmt="o", ms=4,
                 color=DATA, elinewidth=0.9, capsize=0, label="RBS 1223", zorder=5)
     ax.set_yscale("log")
-    ax.set_xlabel("Energy (keV)")
     ax.set_ylabel("Counts (phase-summed)")
     ax.set_xlim(energy[0], energy[-1])
-    ax.legend(loc="upper right", fontsize=11)
+    ax.legend(loc="upper right", fontsize=10)
     _finish(ax)
+
+    res = (so - Q[2]) / np.sqrt(np.maximum(Q[2], 1.0))
+    axr.axhspan(-2, 2, color=S2, zorder=0)
+    axr.axhspan(-1, 1, color=S1, zorder=0)
+    axr.axhline(0, color=MED, lw=1.0, zorder=2)
+    axr.plot(energy, res, "o", ms=3.5, color=DATA, zorder=5)
+    axr.set_ylabel(r"$(N-M)/\sqrt{M}$", fontsize=9)
+    axr.set_xlabel("Energy (keV)")
+    lim = max(4.0, 1.15*np.abs(res).max())
+    axr.set_ylim(-lim, lim)
+    chi2 = float(np.mean(res**2))
+    axr.annotate(r"$\chi^{2}/{\rm bin}=%.1f$ (phase-summed)" % chi2,
+                 (0.03, 0.88), xycoords="axes fraction", fontsize=8, color="0.25", va="top")
+    _finish(axr)
     fig.tight_layout()
     fig.savefig(out.with_suffix(".pdf")); fig.savefig(out.with_suffix(".png"), dpi=200)
+
+
+def diagnosticos(d, LC, SP, lo, so, nph):
+    """Numeros que o texto cita, com o ESTIMADOR identificado.
+
+    A auditoria de 29/09 apontou que o artigo misturava os dois: a fracao
+    pulsada de 16,5 por cento e o residuo de -5,3 sigma sao da amostra de
+    MAXIMA verossimilhanca, enquanto as figuras mostram a mediana das previsoes,
+    que da 16,7 e -5,0. Aqui os dois saem lado a lado.
+    """
+    import json
+    def pf(c):
+        return float((c.max() - c.min()) / (c.max() + c.min()))
+    def pior(c, obs):
+        r = (obs - c) / np.sqrt(np.maximum(c, 1e-9))
+        return float(r[np.argmax(abs(r))])
+    mediana = np.median(LC, axis=0)
+    saida = {"fracao_pulsada": {"curva_mediana": pf(mediana)},
+             "residuo_extremo_sigma": {"curva_mediana": pior(mediana, lo)}}
+
+    # a amostra de maxima verossimilhanca, avaliada de novo
+    try:
+        res = json.loads((d / "resultado.json").read_text())
+        req = json.loads((d / "pedido.json").read_text())
+        S = np.asarray(res["samples"], float)
+        L = np.asarray(res["sampleLogLikelihood"], float)
+        v = S[int(np.nanargmax(L))]
+        ev = req.get("_events") or _guess_events(req)
+        meta, events = m.read_events(Path(ev))
+        prob = m.FitProblem(req, events, meta,
+                            m.read_background(Path(req["_background"]))
+                            if req.get("_background") else None)
+        w = m.EngineWorker(prob.worker_command())
+        _, esp = prob.evaluate(w, list(v), return_model=True)
+        w.close()
+        g = np.array(esp, float).reshape(prob.phase_bins, prob.energy_bins)
+        emin = req.get("energyMin", 0.15); emax = req.get("energyMax", 1.2)
+        nen = prob.energy_bins
+        c = emin + (np.arange(nen) + 0.5) * (emax - emin) / nen
+        mk = c < float(req.get("energyFitMax", emax))
+        cur = g[:, mk].sum(1)
+        saida["fracao_pulsada"]["amostra_de_maximo"] = pf(cur)
+        saida["residuo_extremo_sigma"]["amostra_de_maximo"] = pior(cur, lo)
+    except Exception as erro:                       # nao impedir as figuras
+        saida["amostra_de_maximo"] = "indisponivel: %s" % erro
+
+    saida["_nota"] = ("as bandas das figuras sao da contagem ESPERADA sobre a "
+                      "posterior; nao incluem o sorteio de Poisson de uma nova "
+                      "realizacao")
+    (d / "numeros_figuras.json").write_text(json.dumps(saida, indent=2) + "\n")
+    return saida
 
 
 def main():
@@ -161,6 +235,11 @@ def main():
     if not usar:
         LC, SP, lo, so, nph, energy = sample_models(d, n)
         np.savez(cache, LC=LC, SP=SP, lo=lo, so=so, nph=nph, energy=energy, n=n)
+    n_ = diagnosticos(d, LC, SP, lo, so, nph)
+    fp = n_["fracao_pulsada"]
+    print("fracao pulsada: curva mediana %.4f | amostra de maximo %s"
+          % (fp["curva_mediana"], ("%.4f" % fp["amostra_de_maximo"])
+             if "amostra_de_maximo" in fp else "indisponivel"))
     lightcurve(LC, lo, nph, d / "fig_lightcurve")
     spectrum(SP, so, energy, d / "fig_spectrum")
     print(f"figuras de publicação salvas em {d}/ (fig_lightcurve, fig_spectrum; .pdf + .png)")

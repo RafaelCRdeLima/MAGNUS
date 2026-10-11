@@ -22,6 +22,16 @@ identifiers:
   - type: doi
     value: 10.5281/zenodo.22760148
     description: "DOI of version 0.1.0"
+abstract: >-
+  MAGNUS is a forward model and Bayesian inference code for the thermal X-ray
+  emission of strongly magnetized neutron stars. A two-mode magnetized hydrogen
+  atmosphere solver, with exact normal modes including vacuum polarization,
+  produces angle-resolved specific-intensity tables I(E, mu, theta_B); a C++
+  relativistic ray-tracing engine with exact Schwarzschild light bending, a
+  two-pole surface temperature law and dipolar surface fields turns them into
+  phase-resolved spectra and pulse profiles; and an affine-invariant ensemble
+  MCMC fits them to phase-energy event data. Source code:
+  https://github.com/RafaelCRdeLima/MAGNUS
 license: GPL-3.0
 repository-code: "https://github.com/RafaelCRdeLima/MAGNUS"
 keywords:

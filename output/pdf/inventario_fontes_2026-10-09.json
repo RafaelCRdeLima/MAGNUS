@@ -1,0 +1,642 @@
+[
+  {
+    "path": "docs/VERSAO_NAO_IDENTIFICADA_reducoes_2026-10-07.md",
+    "sha256": "4497d08ffad734c1f97b14378e1ff0c41baba284007a464f0886e7a467f43c2d",
+    "bytes": 7791
+  },
+  {
+    "path": "docs/alvo_estatistico_v2.md",
+    "sha256": "3a5638304e1fb0c67b6950e9e44ea0db89290feaa14cc0970930a68cb7c2a42e",
+    "bytes": 11299
+  },
+  {
+    "path": "docs/alvo_por_observacao_decidido.md",
+    "sha256": "352e5c0309b621cf74cfa23270e3c426b49561cf8c0ff74e8313133aac07f338",
+    "bytes": 3322
+  },
+  {
+    "path": "docs/amostrador_diagnostico.md",
+    "sha256": "fe0230757e933ed6d6f933e761bbb5ef698a299917f7113446e2f8b7e2713c56",
+    "bytes": 3223
+  },
+  {
+    "path": "docs/atmosfera_fina_ciclo_limite.md",
+    "sha256": "a40ca9a1e7c2346be8e0c471348cafee0bf38c28f6ede1eec16ce9fe84de04b6",
+    "bytes": 5478
+  },
+  {
+    "path": "docs/auditoria_2026-09-29/ALTERACOES.md",
+    "sha256": "77f5233cb920b62582f38a414aa75d00b51818d5a007c0cad94acb28fc7a5024",
+    "bytes": 12943
+  },
+  {
+    "path": "docs/auditoria_2026-09-29/RELATORIO.md",
+    "sha256": "1ee4deaf5075e153a358b6e09c38bf9f314f7543e8f27d354e2e080ffcba0302",
+    "bytes": 20742
+  },
+  {
+    "path": "docs/auditoria_2026-09-29/RESPOSTA.md",
+    "sha256": "39c2b4440941048273613ec2238db458c8a317f8a160d94ad54d6692a03db95b",
+    "bytes": 17930
+  },
+  {
+    "path": "docs/auditoria_2026-09-29/convergencia_bacias.json",
+    "sha256": "d67468640a1743227ef702ef42f2587c2ad3ab89bcdff4732c7a3702bf103587",
+    "bytes": 2152
+  },
+  {
+    "path": "docs/auditoria_2026-09-29/dimensao.json",
+    "sha256": "bd4e03a23c599653fb26a2067c4831b2f68c41a7d4a992d719d50dfd349058fc",
+    "bytes": 458
+  },
+  {
+    "path": "docs/auditoria_2026-09-29/dimensao_17livres.json",
+    "sha256": "8aa67c629b6efc42f6a343c03674592124d339ee064adab66793039b1d2f1908",
+    "bytes": 1621
+  },
+  {
+    "path": "docs/auditoria_2026-09-29/evidencias.json",
+    "sha256": "3842df25973ddd96ac0f95949a5ce093ea5ff648a2f1a62dc742323b6f0d5601",
+    "bytes": 23628
+  },
+  {
+    "path": "docs/auditoria_2026-09-29/modelo_verificado.json",
+    "sha256": "aef80466efbd535d51461650d0d00990582b4ea2deffdd4338c6df8ab642ab90",
+    "bytes": 977
+  },
+  {
+    "path": "docs/auditoria_2026-10-01/RELATORIO.md",
+    "sha256": "63e2576f6983b4b98b7710b27e74fa5b42936187e6cef277243182ca8fee8b1a",
+    "bytes": 14301
+  },
+  {
+    "path": "docs/auditoria_2026-10-01/evidencias.json",
+    "sha256": "d301c3e4c12136e4d2275cb2f589fd0c5c23a7cbdf520ba0258b026f2a1766cd",
+    "bytes": 2166
+  },
+  {
+    "path": "docs/calibracao_offset_fase.json",
+    "sha256": "06a677f9422a6206c647efd4513516ab54377a71838984e2bb1c16383e272409",
+    "bytes": 2975
+  },
+  {
+    "path": "docs/compara_formulacoes.json",
+    "sha256": "62d8655ef615446b68590c2b6cc85cee4a77d592c249cbc4e51d1be0e3db865e",
+    "bytes": 62591
+  },
+  {
+    "path": "docs/compara_malhas.json",
+    "sha256": "bc5948295e582ee1d569374063974f3b7c34b2ea6ef8fd4094aff46c6913d3cf",
+    "bytes": 11088
+  },
+  {
+    "path": "docs/compara_malhas_fino.json",
+    "sha256": "90a0dbfd1fd02ef6868f8d6099ef7e0cab17ce7e17d006aa592c155f52b74fc3",
+    "bytes": 13836
+  },
+  {
+    "path": "docs/compara_reducao_limpa.json",
+    "sha256": "38a1c6ded7df856adb4992d9a77a9cc18a0b63a4cd0b779da5b91d1ee299b115",
+    "bytes": 7838
+  },
+  {
+    "path": "docs/congelamento_2026-10-07.json",
+    "sha256": "5777da120329aa86c7486cfcae996d17c4df4f1fedc09f8b87620b16be71dd99",
+    "bytes": 2620
+  },
+  {
+    "path": "docs/convergencia_nas_diferencas.json",
+    "sha256": "9c336decd4701fc7cf204910eac6ea406bdadaedb6f4618a078fe389108a2813",
+    "bytes": 2138
+  },
+  {
+    "path": "docs/convergencia_producao_1_de_2.json",
+    "sha256": "3458b376c1fcad701133c447dad680480fd7ac0af5ab864ac2690ea14307cdd5",
+    "bytes": 2990
+  },
+  {
+    "path": "docs/convergencia_producao_2_de_2.json",
+    "sha256": "e10b80c510bbd51b9312a0c9c5e3b62934710465db336b5add1c16d3873ffffc",
+    "bytes": 3321
+  },
+  {
+    "path": "docs/cruza_tabela.json",
+    "sha256": "913f02cc8b525a2477b6fcf75d71b0e86314f0ad94ba5c72160ac2c3668a8005",
+    "bytes": 5515
+  },
+  {
+    "path": "docs/cruza_tabela_convergencia.json",
+    "sha256": "1a39ecd25e2f523b8fe319f551aee9dadd13d0d86ca59ef84417e1a4a93490c3",
+    "bytes": 7660
+  },
+  {
+    "path": "docs/custo_isolado.json",
+    "sha256": "09f40a9d04a8750cac9b2dd3625cc403087db1c08987c6e62c3a38e86bd457e5",
+    "bytes": 1899
+  },
+  {
+    "path": "docs/custo_por_fase.json",
+    "sha256": "c9b6f49bd122f753e8f4028939ef777b2b8a3a8a85c6686908e836b68712bd18",
+    "bytes": 3831
+  },
+  {
+    "path": "docs/diagnostico_pileup.json",
+    "sha256": "012239f8735bb541da269aed501253599bbd18b65683a727f2e1536929e74e19",
+    "bytes": 6006
+  },
+  {
+    "path": "docs/discretizacao_conjunta_A.json",
+    "sha256": "3cc9898126a5fb1c7f79aee3d5cf84ef649f1fc62c1a8cabde86d58e6aa8a623",
+    "bytes": 3629
+  },
+  {
+    "path": "docs/discretizacao_conjunta_B_aberto.json",
+    "sha256": "14c181458a15906d2428ee522f025e050a0e2e5da74c84cdfbd2d4e1315e4cf7",
+    "bytes": 3630
+  },
+  {
+    "path": "docs/discretizacao_conjunta_B_colado.json",
+    "sha256": "9ed82a7edde18f2b288c52a2a5c35a28ce5d75adb95f844062c16a3e1f295905",
+    "bytes": 3634
+  },
+  {
+    "path": "docs/discretizacao_de_fase.json",
+    "sha256": "005d976050657b729b150cc8f48e9417f3fb23c176cec606a8bf64ed0a937299",
+    "bytes": 6667
+  },
+  {
+    "path": "docs/discretizacao_de_fase_A.json",
+    "sha256": "3a9dfa11367b68157cea939e8b76412cef0a72755621a7093f6bae5bb7223535",
+    "bytes": 3273
+  },
+  {
+    "path": "docs/discretizacao_de_fase_B_aberto.json",
+    "sha256": "55c0b4f54b24dc6e867eefa4e60c3519884a2c35322effffee790901d7d94358",
+    "bytes": 3289
+  },
+  {
+    "path": "docs/discretizacao_de_fase_B_aberto_M3.json",
+    "sha256": "b3e8117622bc4b33ca854ab8185e3a4357f9341637dcf008f068ecf3769ad3e9",
+    "bytes": 3285
+  },
+  {
+    "path": "docs/discretizacao_de_fase_B_colado.json",
+    "sha256": "005d976050657b729b150cc8f48e9417f3fb23c176cec606a8bf64ed0a937299",
+    "bytes": 6667
+  },
+  {
+    "path": "docs/distancia_rbs1223.md",
+    "sha256": "1c7372ab1e9f2464d7c3b068d50a60f169a30410d5df510b345e6ec6e2065aff",
+    "bytes": 3274
+  },
+  {
+    "path": "docs/erro_da_familia.json",
+    "sha256": "786e08f164b23251b8221d844010b82da38f2fe78c2319d852506bf1c6627176",
+    "bytes": 23031
+  },
+  {
+    "path": "docs/escolhe_producao.json",
+    "sha256": "2d4ed3dff5147cde6219186df93dea79380a9404e8dfb194e4f4c4aa9ffaf474",
+    "bytes": 12965
+  },
+  {
+    "path": "docs/estimador_do_fundo.json",
+    "sha256": "9d8837fbd0dcd3fa1d8cadbcce3e9bc50251f8c10bfde842183fc646f71f3637",
+    "bytes": 14897
+  },
+  {
+    "path": "docs/exposicao_por_fase.json",
+    "sha256": "2895ada6fb879dbbac877e99960d381a6bb837ec2dc664690b172fc761e42293",
+    "bytes": 38035
+  },
+  {
+    "path": "docs/exposicao_por_fase.md",
+    "sha256": "9601170684555ac1d0d87becf7a745c3ac01a8eeffe42c47434a6d3a8c3af7b7",
+    "bytes": 7103
+  },
+  {
+    "path": "docs/fase_consolidada.json",
+    "sha256": "7a8a2af94dc8f4d063aef70422a4526ec5a14d570c7037f843e58291d61b048b",
+    "bytes": 7674
+  },
+  {
+    "path": "docs/frente_de_dados_2026-10-07.md",
+    "sha256": "62adea166a71ca04932ce1dcc58a38d618f1e045d8020e1c0e42a16109f4ed6d",
+    "bytes": 3287
+  },
+  {
+    "path": "docs/frente_do_integrador_estatuto.json",
+    "sha256": "c5475d7904969ca1942612db0195f248eeb6259f0e4fa5b0a4d39213c2fa0c48",
+    "bytes": 2272
+  },
+  {
+    "path": "docs/fundo_por_observacao.json",
+    "sha256": "d0efbc72dac090a9abe7991b4094bceb66027a77776e26adfd0c201a1ba155de",
+    "bytes": 53245
+  },
+  {
+    "path": "docs/fundo_reconstruido.json",
+    "sha256": "0417fc0261829bb598db2a05e879dfe3e96be554eb2f72ddd4fbfca7f06d0f94",
+    "bytes": 8523
+  },
+  {
+    "path": "docs/grade_ho_vs_magnus.md",
+    "sha256": "65fdff6092f1b3fca41f087ba4b19aa03b38e4a3d39ce096a97831ee9e165f19",
+    "bytes": 4478
+  },
+  {
+    "path": "docs/incerteza_fundo.json",
+    "sha256": "de1f82d5f90bb41e940141b9f01cb39b273d908e30314b00b08e439782d6d5b0",
+    "bytes": 62496
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/P1_mecanismo_2026-10-06.md",
+    "sha256": "ffaca7bbbf39435da7b9990abdefcf5eee3d12943b7c2adf94e3aa295e76095f",
+    "bytes": 9140
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/candidata_p1.json",
+    "sha256": "77a58f0d3eed572bde3e33d04261189a9021b7efca9966e78808cbcaa7fe0708",
+    "bytes": 9191
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/candidata_p1_2026-10-07.md",
+    "sha256": "158b990c7da62d0977b0459aac5c7df248fc7f9363d99ca4af88ca3c4b30fc2d",
+    "bytes": 8088
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/candidatos_p1.json",
+    "sha256": "b0c775644277b0c556db803651a1bee8aae7b7687014c78c9e135b9725fd4994",
+    "bytes": 71621
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/convencao_quadro.json",
+    "sha256": "8416e645ff367407eca240a7d5fcf587a2be34d910fa0f59788adbe0acf65c3d",
+    "bytes": 7236
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/convergencia_quadratura.json",
+    "sha256": "9e518c23e2f5470b1aed6776d757ef9e13a6c9fd0b82639f3cafb59627cb1c8a",
+    "bytes": 9606
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/corrida_cluster_46150.json",
+    "sha256": "9a653cb5ae665084bb10c01b8d3c55453361ccc0962b21c8bdefd6f756838f9b",
+    "bytes": 2485
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/determinismo_do_motor.json",
+    "sha256": "a61f880566bd02d00f2fae2736e3f5c4696f7b55fbfa1dd5fadff218a6d1000e",
+    "bytes": 5400
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/diagnostico_alvo_novo.json",
+    "sha256": "d71a1f415ad7b0c95137a108f4bb180e36771876511ef627a68dfc51d4a65152",
+    "bytes": 3073
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/fechamento_PE_2026-10-06.md",
+    "sha256": "243865bd6041e34195c637910cddace1a63e89d8b213cf2866293502d89618d4",
+    "bytes": 11813
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/fechamento_PE_2026-10-06b.md",
+    "sha256": "0e42281052a8ca709da4c6443cbe0ecf1c0eb9b070dd9f6574a0af577c4d085e",
+    "bytes": 11495
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/fechamento_tolerancia_2026-10-06.md",
+    "sha256": "6a3b7fa0c925758062fc62d70ae5762e33f3115403fe8d851f475aaf48620759",
+    "bytes": 7378
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/limite_a0_2026-10-06.md",
+    "sha256": "f48e9c04123e0681ded94f1eb502c9304736ca9b76cd12ffaaeb29a29fa61304",
+    "bytes": 8565
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/manifesto_dados_p1.json",
+    "sha256": "44cb4cc71d5c300306fae5a9c8c0fef5705276f59524ee5f878e9c14e0e4b2db",
+    "bytes": 1900
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/matriz_gauss_declarada.md",
+    "sha256": "68e3b22740b393fcd4b8101bd515b9c64c5e132648dcb097af80ce6bed266d21",
+    "bytes": 2718
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/mecanismo_p1.json",
+    "sha256": "a3fa6a3babc50e47ca290ce661db94200c4c17dda424c4a4350988ff881e3559",
+    "bytes": 3562
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/mistura19.json",
+    "sha256": "665da72610ab02b5bebc7206811773546dac821ca5ede1f7130a0364a00fb04c",
+    "bytes": 14828
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/modoA.json",
+    "sha256": "cadb0045525d6a2c8312f061483294834969556f6784ab819b0a2bf8d7bb2b4a",
+    "bytes": 1140
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/modosB.json",
+    "sha256": "f7b99fead99d9c2e3144e6c5787080b122c50fcf1ce1cecbae1699eca53fe49c",
+    "bytes": 1147
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/onde_nasce_o_residuo.json",
+    "sha256": "e3f6e8522975d906ed4e431223324a3f52649e9c65509e995a669ddc9fc99444",
+    "bytes": 11842
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/plano_imagem_p1.json",
+    "sha256": "47559b84d0937743d60983db7a4def0fc6db33b44dc8fa5e88d6a4f9265dc767",
+    "bytes": 13451
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/por_imagem_p1.json",
+    "sha256": "be5e6ba771fe5ac0c03bd3763ab84a90f326272e0ea707a6c38ddd1ecec99d1d",
+    "bytes": 5264
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/portao_P1.json",
+    "sha256": "e2587de926acf5bde4c81a2fcf5bd0eedb4c990bf4b510b9ef1a8280389c99b9",
+    "bytes": 15755
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/portao_PE.json",
+    "sha256": "2361abdc3a98abab41e2065dae82eeb28f6a1215e9da65efc766ad370414f226",
+    "bytes": 60830
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/portao_reproducao_p1.md",
+    "sha256": "49edaef41556a46470df1f02049b2ac14f8ce0a8ede6df986d55f14c66cdc51f",
+    "bytes": 3224
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/pre_registro_candidatos_p1.md",
+    "sha256": "23ddea3ba7df8210e6bac7d8bd92b525f87b5b79fb3f7b41647eec1aa017a005",
+    "bytes": 5894
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/pre_registro_controles_nao_uniformes.md",
+    "sha256": "28c69ffabf057e4b7bd3a92a2dbd3cd79613739fa05053879a06be09388f0ff3",
+    "bytes": 4147
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/pre_registro_plano_imagem.md",
+    "sha256": "f0c7c231074a0d3149382c5eba739cea5111d9d30203740a2464a54a4bfb0d4c",
+    "bytes": 4897
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/pre_registro_replicas.md",
+    "sha256": "d10230eb127c66288f537e926e44e7600136181f14ba7aea5f14f59373a0a16e",
+    "bytes": 4545
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/pre_registro_tolerancia_familia.md",
+    "sha256": "14ff65710bd4f7f546f9cd45cbe2d666f781606ad7208157ced1672566635fe8",
+    "bytes": 2759
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/qnum_exposicao.json",
+    "sha256": "7982ff6dbb30c66b7d6e730cc62f234dd9f2d7683c1b5ef86ea42748009db36c",
+    "bytes": 12515
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/registro.json",
+    "sha256": "2b8217ded57a00197939287dcaf5eb420aba9b0da1e84a072ebbdc56b3bfbeb4",
+    "bytes": 2379
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/resolucao_nos_casos_dificeis.json",
+    "sha256": "9a7c46947e2753bd71502ab3e0051f534c25f5ec45c4fff9e0f5212ad62aaecf",
+    "bytes": 5613
+  },
+  {
+    "path": "docs/incidente_resolucao_2026-10-04/teste_gauss.json",
+    "sha256": "8de8464c5ecfda50f1f3abcba5ecac23c32560f34ba3fa57e0e572f30efb94d6",
+    "bytes": 4643
+  },
+  {
+    "path": "docs/isolamento_alinhamento_2026-10-07.json",
+    "sha256": "0841c9140540e4c32c2d8fb890abc04140857cbd869649731df70ffaad0d0053",
+    "bytes": 5965
+  },
+  {
+    "path": "docs/limite_a0.json",
+    "sha256": "6e64f820fdf242a52c421818431b13a1118d638c34f330810e5f7e1795e4da2a",
+    "bytes": 10841
+  },
+  {
+    "path": "docs/literatura_numerica_mcmc_2026-10-05.md",
+    "sha256": "0e15eb908910b2990f51785c97b92384832179a929d9253e9ef909d099209ff0",
+    "bytes": 9652
+  },
+  {
+    "path": "docs/localiza_malha.json",
+    "sha256": "ab4dbbabd609589590a8aa9b7d66da0d21169586462563b7a0a9604236c74a0a",
+    "bytes": 19464
+  },
+  {
+    "path": "docs/malha_com_tabela_fina.json",
+    "sha256": "5706c58e2cb242fa6c93fbb964ab22f248a39beafd8672c11d51121b82a7796d",
+    "bytes": 9830
+  },
+  {
+    "path": "docs/malha_tabela_fina_sequencia.json",
+    "sha256": "09b3f1081bdad093ac0cd0f7ed12f60311ddfecf2e9f5dc9f9ebe32be52ded99",
+    "bytes": 13866
+  },
+  {
+    "path": "docs/manifesto_estatistico.json",
+    "sha256": "c89120f1b12e3576c294003a32127a6202a04db0d6dedb7bd43bc402580259dd",
+    "bytes": 13808
+  },
+  {
+    "path": "docs/marginaliza_fundo.json",
+    "sha256": "d8e4c6c7ac1bce4cc10dee2b7d3de9525f05546cc6a074a0c24327a60c47ff26",
+    "bytes": 9024
+  },
+  {
+    "path": "docs/normalizacao_do_alvo_v2.md",
+    "sha256": "ff5650ec5308218a4b22f2b275c7ac2aa32351827ba5246dd686a61dfcb0e2fd",
+    "bytes": 5359
+  },
+  {
+    "path": "docs/offset_relativo.json",
+    "sha256": "0c1bdd05016d327a9c0122f0a1b783f18b472aa90f01ce56605a4d1068d5e6b6",
+    "bytes": 22284
+  },
+  {
+    "path": "docs/parecer_segunda_opiniao_2026-10-04.md",
+    "sha256": "cef7162e25191a5a1a1dcef06ee88dc13ca41e338bddb610815817dc016ebce6",
+    "bytes": 8369
+  },
+  {
+    "path": "docs/pileup_pre_corte.json",
+    "sha256": "d4886804e21a86b4fb91dd758616513049e3f84b94ce0ca54192f17de5118b54",
+    "bytes": 6850
+  },
+  {
+    "path": "docs/plano_otimizado_producao_2026-10-07.md",
+    "sha256": "c2cf504a751e3698506abd0a6df10dfeed88757cc632f4ba5faeae17bd086b5f",
+    "bytes": 11825
+  },
+  {
+    "path": "docs/plano_portoes_validacao_2026-10-05.md",
+    "sha256": "2d7a17e3576dce38305b3ce23609bf0e6fb72b5cdcdf464852db7d8cc79814a3",
+    "bytes": 31380
+  },
+  {
+    "path": "docs/plano_recuperacao_inferencia_2026-10-04.md",
+    "sha256": "fba151a7c3d67ec5272fce98bf9939f873e7153970ec55048d9f06ae67d82500",
+    "bytes": 16412
+  },
+  {
+    "path": "docs/plano_tres_etapas_2026-10-08.md",
+    "sha256": "efe521b0a61037d310f7b4e5f113cd6148c54d382b1e64438cabe8a3545f1b2f",
+    "bytes": 4036
+  },
+  {
+    "path": "docs/por_observacao.json",
+    "sha256": "56a9e59a0c541004ae3a2c82f89ec0f79d52d7b62356c1605773a26db799d8fa",
+    "bytes": 42936
+  },
+  {
+    "path": "docs/por_observacao_2026-10-07.md",
+    "sha256": "84a24f4b340798e128a8aad18fd7219d22a86d057dea6af4e00fb43317785581",
+    "bytes": 8884
+  },
+  {
+    "path": "docs/portao_de_dados.json",
+    "sha256": "c1d15842eee23f97a0f1bf8a02ad349fc26e3b07443b83c542b19433e6e8148b",
+    "bytes": 72032
+  },
+  {
+    "path": "docs/portao_de_dados.md",
+    "sha256": "246de93cd44bba8a01af97de1ff3b786d31e5d4341c2cf2d476e801cdeda1058",
+    "bytes": 6795
+  },
+  {
+    "path": "docs/portao_de_dados_2026-10-07.md",
+    "sha256": "2641d86da522e73e0c85b71e8a2367f031dace43c455dd0191afadcdca141cea",
+    "bytes": 7612
+  },
+  {
+    "path": "docs/priori_do_fundo.json",
+    "sha256": "ebb13689dc305fff250f0ac236a336b8caad9344e3a68a1fd5bc574fab06ac21",
+    "bytes": 6732
+  },
+  {
+    "path": "docs/pulso_reajuste.md",
+    "sha256": "b335353bbf0c3a8409d9d1f3930898305944b8c56dd01b11c90393849773d1a0",
+    "bytes": 2899
+  },
+  {
+    "path": "docs/relatorio_rodada_coordenada_2026-10-07.md",
+    "sha256": "a3e8f056d4d51fb79217a0c0baacc37335f6491af045c3f71339f8ba78d82fed",
+    "bytes": 15517
+  },
+  {
+    "path": "docs/reuso_por_observacao.json",
+    "sha256": "85d9f21176437d3aaf6d8f9c6363ed90473d563c50a65d553dcc6192195f4b52",
+    "bytes": 10669
+  },
+  {
+    "path": "docs/segunda_opiniao_2026-10-04.md",
+    "sha256": "b44a2ca9b0b00d31456aa69b0e3548ce2135a23da14766752f1eab76bc89f783",
+    "bytes": 7087
+  },
+  {
+    "path": "docs/suavizacao_inerte.json",
+    "sha256": "8349db7d3be32fcf190697676d0d7cba2a4a45348ca5e0beef14dd942c7d895c",
+    "bytes": 1881
+  },
+  {
+    "path": "docs/tempo_scicom.json",
+    "sha256": "cc9e7b7245b9e9a8c250be9bf62eeb3385e19481ce045f82520e2b44e098c9b5",
+    "bytes": 2504
+  },
+  {
+    "path": "docs/temporal_psi0_A_480_115200.json",
+    "sha256": "a6c2a8bf901f39af5550e1107d015d03ca8b80b51ece1a11e8fd23a00dc389a3",
+    "bytes": 4931
+  },
+  {
+    "path": "docs/temporal_psi0_A_480_115200_M15.json",
+    "sha256": "4b5a198dad1133c8ddd8136a3104202f8bc35197567313438f7519e081e9b3de",
+    "bytes": 3493
+  },
+  {
+    "path": "docs/temporal_psi0_A_480_115200_M5.json",
+    "sha256": "650d8edca8dd7d0961b182a9fb552cc672a70609fa027265e6cc63188376fa42",
+    "bytes": 3490
+  },
+  {
+    "path": "docs/temporal_psi0_B_aberto_480_115200.json",
+    "sha256": "c05f46404dd535a1647b35d8c35d3145175a3587ee1ec18daa65ec186ffbe5df",
+    "bytes": 2316
+  },
+  {
+    "path": "docs/temporal_psi0_B_aberto_480_115200_M5.json",
+    "sha256": "ad2e940bdcee94e76e1ac368d226d23f9fc7f4498a05680ac14c4e7d97a4d2e2",
+    "bytes": 3492
+  },
+  {
+    "path": "docs/temporal_psi0_B_colado_480_115200.json",
+    "sha256": "ee6867db24081523d0eb822588623d599e6d00939ba5dab394ad4de98e6cd83a",
+    "bytes": 2315
+  },
+  {
+    "path": "docs/temporal_psi0_B_colado_480_115200_M5.json",
+    "sha256": "f99cbd7c4fb591638d1952fdf2f7fdba36b2490dee76775e7167811e4181bb5d",
+    "bytes": 3492
+  },
+  {
+    "path": "docs/tolerancia_familia.json",
+    "sha256": "73257d3e71ff101f35318fa89e858a5b31af3bee177e3468035d2adf05f9b940",
+    "bytes": 20650
+  },
+  {
+    "path": "docs/vacuo_convergencia_literatura.md",
+    "sha256": "458773953d71444fcac7c07d7b105fa2d35231b8a66066333e5f29aba11f2b00",
+    "bytes": 27941
+  },
+  {
+    "path": "docs/valida_exposunn.json",
+    "sha256": "950d7e511e239c43f1fa3add3fab3549f966434269290f1f740884b32eb62077",
+    "bytes": 15496
+  },
+  {
+    "path": "docs/valida_malha_psi0.json",
+    "sha256": "8d43d122ed98f24b66a7967e003d88af298b93f0677cbc0643fc0592a32b513c",
+    "bytes": 7114
+  },
+  {
+    "path": "docs/valida_offset.json",
+    "sha256": "ced8c8e8f1d5ed5121745e034b3bf9599c438d4a82a6ea7caa5c8c2d498b32e6",
+    "bytes": 7086
+  },
+  {
+    "path": "docs/valida_reuso.json",
+    "sha256": "368029bb4f4000abbf7735762f6ce3b0295fff7bba2d31b657ed85076aef99bf",
+    "bytes": 7313
+  },
+  {
+    "path": "docs/validacoes_para_o_artigo.md",
+    "sha256": "b1aa2c0ae11c6f039af8bc0003efd756584b7e2f247e5e79513fb1bf3f3b7739",
+    "bytes": 6040
+  },
+  {
+    "path": "docs/verificacoes_do_revisor_2026-10-04.md",
+    "sha256": "31aaa5c7d7988cc2c623a78b467bca65d47ee1dfd364f4fef6dc2a5866ef5ff7",
+    "bytes": 6185
+  },
+  {
+    "path": "<XMM>/reconstrucao_5906a57/RELATORIO.md",
+    "sha256": "64a05c723cb412591d250d6c6ce1d02a98154ad0e76df3f814829c6703fe50f0",
+    "bytes": 15218
+  }
+]

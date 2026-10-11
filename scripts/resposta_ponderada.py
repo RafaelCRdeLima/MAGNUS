@@ -40,21 +40,57 @@ COMBINADO = ROOT / "exploracoes/dados_combinados_13obs_2026-09-12/combinado13.np
 ID = "xmm_epn_imaging_combinado13"
 
 
-def acha(obsid):
-    for p in (PRODUTOS / obsid, *PRODUTOS.glob("*/" + obsid)):
+def acha(obsid, origem=None):
+    """O diretorio com src.arf e src.rmf daquela observacao.
+
+    Dois layouts. O antigo, em Codes/XMM-NEWTON/products, tem os arquivos com
+    nome fixo `src.arf` e `src.rmf`. O da RECONSTRUCAO tem prefixo CURTO,
+    `epn_sNNN_src.arf`, um nivel acima dos CSVs do pulsaris. Devolve
+    (diretorio, prefixo), com prefixo vazio no layout antigo.
+    """
+    base = Path(origem) if origem else PRODUTOS
+    for p in (base / obsid, *base.glob("*/" + obsid), *base.glob("*/*/" + obsid)):
         if (p / "src.arf").is_file() and (p / "src.rmf").is_file():
-            return p
-    raise SystemExit("sem resposta para %s" % obsid)
+            return p, ""
+        achados = sorted(p.glob("*_src.arf"))
+        for arf in achados:
+            prefixo = arf.name[:-len("_src.arf")]
+            if (p / (prefixo + "_src.rmf")).is_file():
+                return p, prefixo
+    raise SystemExit("sem resposta para %s em %s" % (obsid, base))
+
+
+def arquivos(dirobs, prefixo):
+    pre = (prefixo + "_") if prefixo else ""
+    return dirobs / (pre + "src.arf"), dirobs / (pre + "src.rmf")
+
+
+def sha256(caminho):
+    import hashlib
+    h = hashlib.sha256()
+    with open(caminho, "rb") as fh:
+        for pedaco in iter(lambda: fh.read(1 << 20), b""):
+            h.update(pedaco)
+    return h.hexdigest()
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--saida", default=str(ROOT / "instrumento"))
+    ap.add_argument("--origem", default=None,
+                    help="raiz das respostas; sem ela, Codes/XMM-NEWTON/products")
+    ap.add_argument("--combinado", default=str(COMBINADO),
+                    help="npz coadicionado de onde vem obsids e exposicoes")
+    ap.add_argument("--id", dest="ident", default=ID)
+    ap.add_argument("--procedencia", default=None,
+                    help="rotulo da procedencia, por exemplo o commit da reducao")
     a = ap.parse_args()
+    ident = a.ident
+    COMB = Path(a.combinado)
     saida = Path(a.saida) / "instrument_data" / "profiles"
     saida.mkdir(parents=True, exist_ok=True)
 
-    d = np.load(COMBINADO, allow_pickle=True)
+    d = np.load(COMB, allow_pickle=True)
     obsids = [str(x) for x in d["obsids"]]
     tempos = np.asarray(d["exposures"], float)
     T = float(tempos.sum())
@@ -66,10 +102,16 @@ def main():
     linhas = None
     canais_bounds = {}
 
+    proveniencia = []
     for obsid, t in zip(obsids, tempos):
-        p = acha(obsid)
-        arf = B.read_arf(p / "src.arf")
-        rmf = B.read_rmf_response(p / "src.rmf")
+        p, prefixo = acha(obsid, a.origem)
+        f_arf, f_rmf = arquivos(p, prefixo)
+        proveniencia.append({"obsid": obsid, "exposicao": float(t),
+                             "arf": str(f_arf), "rmf": str(f_rmf),
+                             "sha256_arf": sha256(f_arf),
+                             "sha256_rmf": sha256(f_rmf)})
+        arf = B.read_arf(f_arf)
+        rmf = B.read_rmf_response(f_rmf)
         E = np.array([e for e, _ in rmf])
         if energias is None:
             energias = E
@@ -102,38 +144,77 @@ def main():
         resposta.append((float(e), amostras))
 
     area_pts = list(zip(energias.tolist(), area_ef.tolist()))
-    B.write_sparse_response(saida / (ID + ".rmfbin"), area_pts, resposta)
+    B.write_sparse_response(saida / (ident + ".rmfbin"), area_pts, resposta)
 
     momentos = B.response_moments(resposta)
     passo = max(1, len(momentos) // 256)
     sel = momentos[::passo]
     if sel[-1] != momentos[-1]:
         sel.append(momentos[-1])
-    with (saida / (ID + ".csv")).open("w", newline="") as f:
+    with (saida / (ident + ".csv")).open("w", newline="") as f:
         f.write("# energy_keV,area_cm2,rmf_mean_keV,rmf_sigma_keV,rmf_efficiency\n")
         w = csv.writer(f)
         for e, mean, sigma, eff in sel:
             w.writerow((f"{e:.9g}", f"{B.interpolate(area_pts, e):.9g}",
                         f"{mean:.9g}", f"{sigma:.9g}", f"{eff:.9g}"))
 
-    # manifesto proprio, com as entradas do PULSARIS mais a nova
-    orig = json.loads((PULSARIS / "instrument_data/profiles/manifest.json").read_text())
+    # manifesto proprio. SE JA EXISTIR UM LOCAL, ELE E A BASE: comecar do
+    # PULSARIS apagaria as entradas por observacao registradas aqui, que o
+    # PULSARIS nao tem. Isto quase me custou os 13 perfis da reconstrucao.
+    local = saida / "manifest.json"
+    fonte = local if local.is_file() else (
+        PULSARIS / "instrument_data/profiles/manifest.json")
+    orig = json.loads(fonte.read_text())
     perfis = orig["profiles"]
     modelo = next(p for p in (perfis if isinstance(perfis, list) else perfis.values())
                   if p["id"] == "xmm_epn_imaging_0844140101")
     novo = dict(modelo)
-    novo.update(id=ID, label="XMM-Newton / EPN coadd 13 obs",
+    novo.update(id=ident, label="XMM-Newton / EPN coadd 13 obs",
                 calibration="Soma dos operadores de resposta das 13 observacoes, "
                             "ponderada pela exposicao; ARF e RMF por observacao "
                             "gerados pelo SAS via XREDUX.",
-                profile_file="instrument_data/profiles/%s.csv" % ID,
-                response_file="instrument_data/profiles/%s.rmfbin" % ID,
+                profile_file=str(Path(a.saida).relative_to(ROOT)
+                                 / "instrument_data/profiles/%s.csv" % ident)
+                if Path(a.saida).is_relative_to(ROOT) else
+                "instrument_data/profiles/%s.csv" % ident,
+                response_file=str(Path(a.saida).relative_to(ROOT)
+                                  / "instrument_data/profiles/%s.rmfbin" % ident)
+                if Path(a.saida).is_relative_to(ROOT) else
+                "instrument_data/profiles/%s.rmfbin" % ident,
                 raw_files=[])
+    # As resolucoes temporais que entraram, e a escolha DECLARADA. O revisor:
+    # "a mistura de quadros deve ser representada pela combinacao dos operadores
+    # de suavizacao de cada observacao. Usar o tempo medio ponderado nao e, em
+    # geral, equivalente." Logo nao existe uma resolucao correta para uma
+    # coadicao de duas; a ponderada entra como CONVENCAO da formulacao
+    # coadicionada, e o custo dela foi medido: residuo de forma de 3,34e-02
+    # entre os dois grupos de resolucao, em docs/reuso_por_observacao.json.
+    resol = ([float(x) for x in d["resolucao_temporal_us"]]
+             if "resolucao_temporal_us" in d.files else None)
+    if resol:
+        media = float(np.average(resol, weights=tempos))
+        novo["time_resolution_us"] = media
+        novo["resolucao_e_uma_CONVENCAO"] = {
+            "valores_que_entraram": sorted(set(resol)),
+            "ponderada_pela_exposicao": media,
+            "por_que_isto_nao_e_equivalente": (
+                "a mistura de quadros tem de ser a combinacao dos operadores de "
+                "suavizacao de cada observacao, e o tempo medio ponderado nao e "
+                "equivalente a isso"),
+            "custo_medido": ("residuo de forma de 3,34e-02 entre os dois grupos "
+                             "de resolucao, em docs/reuso_por_observacao.json")}
+    novo["procedencia"] = {
+        "rotulo": a.procedencia, "combinado": str(COMB),
+        "origem_das_respostas": a.origem or str(PRODUTOS),
+        "exposicao_total_s": T, "observacoes": proveniencia}
     if isinstance(perfis, list):
-        orig["profiles"] = [p for p in perfis if p["id"] != ID] + [novo]
+        orig["profiles"] = [p for p in perfis if p["id"] != ident] + [novo]
     else:
-        orig["profiles"][ID] = novo
-    (saida / "manifest.json").write_text(json.dumps(orig, indent=1) + "\n")
+        orig["profiles"][ident] = novo
+    if local.is_file():
+        import shutil
+        shutil.copy2(local, local.with_suffix(".json.antes_" + ident))
+    local.write_text(json.dumps(orig, indent=1) + "\n")
 
     # o resto do acervo tem de continuar resolvendo
     for sub in ("absorption",):
@@ -145,7 +226,7 @@ def main():
             (saida / p.name).symlink_to(p)
 
     print()
-    print("gravado %s" % (saida / (ID + ".rmfbin")))
+    print("gravado %s" % (saida / (ident + ".rmfbin")))
     print("area efetiva a 1 keV: %.1f cm2" % B.interpolate(area_pts, 1.0))
 
 

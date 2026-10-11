@@ -1,0 +1,509 @@
+{
+  "format": "PULSARIS_INSTRUMENT_PROFILES",
+  "version": 2,
+  "generated_by": "scripts/build_instrument_profiles.py",
+  "profiles": [
+    {
+      "id": "generic",
+      "label": "Ideal generic detector",
+      "instrument": "Ideal detector",
+      "energy_min_keV": 0.1,
+      "energy_max_keV": 100.0,
+      "time_resolution_us": 0.0,
+      "dead_time_us": 0.0,
+      "calibration": "Ideal response with unit area and perfect energy resolution.",
+      "source_url": "https://heasarc.gsfc.nasa.gov/docs/heasarc/caldb/docs/memos/cal_gen_92_002/cal_gen_92_002.html"
+    },
+    {
+      "id": "nicer_xti",
+      "label": "NICER / XTI",
+      "instrument": "XTI on-axis (52 FPM)",
+      "energy_min_keV": 0.2,
+      "energy_max_keV": 12.0,
+      "time_resolution_us": 0.1,
+      "dead_time_us": 15.0,
+      "calibration": "On-axis CALDB ARF v005 plus full OGIP RMF v003; representative response, not observation-specific.",
+      "source_url": "https://heasarc.gsfc.nasa.gov/docs/nicer/analysis_threads/arf-rmf/",
+      "profile_file": "instrument_data/profiles/nicer_xti.csv",
+      "response_file": "instrument_data/profiles/nicer_xti.rmfbin",
+      "redistribution": "full_sparse_ogip_rmf",
+      "raw_files": [
+        {
+          "path": "instrument_data/raw/nicer/nixtiaveonaxis20170601v005.arf",
+          "download_url": "https://heasarc.gsfc.nasa.gov/FTP/caldb/data/nicer/xti/cpf/arf/nixtiaveonaxis20170601v005.arf",
+          "sha256": "f451acf23e13002ac4f7a45e51159b438e9f1bf708138c1a7ce9c96ef6e2f5cd"
+        },
+        {
+          "path": "instrument_data/raw/nicer/nixtiref20170601v003.rmf",
+          "download_url": "https://heasarc.gsfc.nasa.gov/FTP/caldb/data/nicer/xti/cpf/rmf/nixtiref20170601v003.rmf",
+          "sha256": "eb18dbb0ee86d427d32445aea6e6ca35330b80f0c1a806f999418c3202ec9e07"
+        }
+      ]
+    },
+    {
+      "id": "xmm_epn_timing",
+      "label": "XMM-NEWTON / EPIC-pn",
+      "instrument": "EPIC-pn Timing, e4, PATTERN 0-4, Y9",
+      "energy_min_keV": 0.3,
+      "energy_max_keV": 12.0,
+      "time_resolution_us": 29.52,
+      "dead_time_us": 0.0,
+      "calibration": "Canned response for simulation only: the redistribution is the official v22.0 RMF but the effective area is a representative on-axis envelope, not an ARF for any real observation. Reduce real data with XREDUX to get an observation-specific profile.",
+      "source_url": "https://www.cosmos.esa.int/web/xmm-newton/epic-response-files",
+      "profile_file": "instrument_data/profiles/xmm_epn_timing.csv",
+      "response_file": "instrument_data/profiles/xmm_epn_timing.rmfbin",
+      "redistribution": "full_sparse_ogip_rmf",
+      "raw_files": [
+        {
+          "path": "instrument_data/raw/xmm_newton/epn_e4_ti40_sdY9_v22.0.rmf",
+          "download_url": "https://heasarc.gsfc.nasa.gov/FTP/xmm/data/responses/PN/epn_e4_ti40_sdY9_v22.0.rmf",
+          "sha256": "efb4a3c1106d67b4df3867cf790d12be4618f2b5d2b28b8e7be6e49b7228aea0"
+        }
+      ]
+    },
+    {
+      "id": "nustar_fpma",
+      "label": "NuSTAR / FPMA",
+      "instrument": "FPMA, point source, 30 arcsec, 1 arcmin off-axis",
+      "energy_min_keV": 3.0,
+      "energy_max_keV": 79.0,
+      "time_resolution_us": 2.0,
+      "dead_time_us": 2500.0,
+      "calibration": "Official proposer package: ARF plus full RMF for one optic; 30 arcsec region.",
+      "source_url": "https://www.nustar.caltech.edu/page/response_files",
+      "profile_file": "instrument_data/profiles/nustar_fpma.csv",
+      "response_file": "instrument_data/profiles/nustar_fpma.rmfbin",
+      "redistribution": "full_sparse_ogip_rmf",
+      "raw_files": [
+        {
+          "path": "instrument_data/raw/nustar/point_sources/point_30arcsecRad_1arcminOA.arf",
+          "download_url": "https://www.nustar.caltech.edu/system/media_files/binaries/32/original/nustar_point_sources_for_proposers.tgz",
+          "sha256": "fff15a1dcadba9839e166e0285e9b36753551ef90bac2dd9822cfb1e1390cda4"
+        },
+        {
+          "path": "instrument_data/raw/nustar/point_sources/nustar.rmf",
+          "download_url": "https://www.nustar.caltech.edu/system/media_files/binaries/32/original/nustar_point_sources_for_proposers.tgz",
+          "sha256": "8708c912053b5d483ebdf1f7b081bad6473a5e9a2703415814d7e02190bcc30c"
+        }
+      ]
+    },
+    {
+      "id": "chandra_aciss",
+      "label": "Chandra / ACIS-S",
+      "instrument": "ACIS-S3 aimpoint, Cycle 28, Timed Exposure",
+      "energy_min_keV": 0.3,
+      "energy_max_keV": 12.0,
+      "time_resolution_us": 3200000.0,
+      "dead_time_us": 0.0,
+      "calibration": "Full Cycle 28 ARF and RMF at the aimpoint; not suitable for analyzing real observations.",
+      "source_url": "https://cxc.cfa.harvard.edu/caldb/prop_plan/imaging/",
+      "profile_file": "instrument_data/profiles/chandra_aciss.csv",
+      "response_file": "instrument_data/profiles/chandra_aciss.rmfbin",
+      "redistribution": "full_sparse_ogip_rmf",
+      "raw_files": [
+        {
+          "path": "instrument_data/raw/chandra/aciss_aimpt_cy28.arf",
+          "download_url": "https://cxc.cfa.harvard.edu/caldb/prop_plan/imaging/CY28/aciss_aimpt_cy28.arf",
+          "sha256": "f9cc39c8454caec657768f9c900365e7af0db4d617eaa540c0a3623234e8c8b0"
+        },
+        {
+          "path": "instrument_data/raw/chandra/aciss_aimpt_cy28.rmf",
+          "download_url": "https://cxc.cfa.harvard.edu/caldb/prop_plan/imaging/CY28/aciss_aimpt_cy28.rmf",
+          "sha256": "843b218374504a8de8e6694df65f17dcc4fd66892645042e63aeef53df7e6003"
+        }
+      ]
+    },
+    {
+      "id": "xmm_epn_imaging_0844140101",
+      "label": "XMM-Newton / EPN 0844140101",
+      "instrument": "EPN IMAGING Thin1",
+      "energy_min_keV": 0.15,
+      "energy_max_keV": 12.0,
+      "time_resolution_us": 73400.0,
+      "dead_time_us": 0.0,
+      "calibration": "ARF e RMF gerados pelo SAS para a observação 0844140101, região círculo r=30.0\" em (25943,23824).",
+      "source_url": "https://www.cosmos.esa.int/web/xmm-newton",
+      "profile_file": "instrument_data/profiles/xmm_epn_imaging_0844140101.csv",
+      "response_file": "instrument_data/profiles/xmm_epn_imaging_0844140101.rmfbin",
+      "redistribution": "full_sparse_ogip_rmf",
+      "raw_files": [
+        {
+          "path": "instrument_data/raw/xmm_newton/src.arf",
+          "download_url": "https://www.cosmos.esa.int/web/xmm-newton",
+          "sha256": "cf679bd6ee77c9e6dcf3af1223c82d3acd15c0373094f70c03f168a39b7b659e"
+        },
+        {
+          "path": "instrument_data/raw/xmm_newton/src.rmf",
+          "download_url": "https://www.cosmos.esa.int/web/xmm-newton",
+          "sha256": "d2f15c3188a5f0a5a22daaafcd4b10d7811a22ead2362a09d9e43046257414df"
+        }
+      ]
+    },
+    {
+      "id": "xmm_epn_imaging_0852980201",
+      "label": "XMM-Newton / EPN 0852980201",
+      "instrument": "EPN IMAGING Thin1",
+      "energy_min_keV": 0.15,
+      "energy_max_keV": 12.0,
+      "time_resolution_us": 5700.0,
+      "dead_time_us": 0.0,
+      "calibration": "ARF e RMF gerados pelo SAS para a observação 0852980201, região círculo r=30.0\" em (24955,24079).",
+      "source_url": "https://www.cosmos.esa.int/web/xmm-newton",
+      "profile_file": "instrument_data/profiles/xmm_epn_imaging_0852980201.csv",
+      "response_file": "instrument_data/profiles/xmm_epn_imaging_0852980201.rmfbin",
+      "redistribution": "full_sparse_ogip_rmf",
+      "raw_files": [
+        {
+          "path": "instrument_data/raw/xmm_newton/src.arf",
+          "download_url": "https://www.cosmos.esa.int/web/xmm-newton",
+          "sha256": "f0806c055191a06fa5fa9621c9e5cf1b859b70dfb347fe94fedaafcac4f8e163"
+        },
+        {
+          "path": "instrument_data/raw/xmm_newton/src.rmf",
+          "download_url": "https://www.cosmos.esa.int/web/xmm-newton",
+          "sha256": "0aa1aebf8ddd8a3eac0fd8060b3e43726465e2c0792798a1c07c2b24979c5dc9"
+        }
+      ]
+    },
+    {
+      "id": "xmm_epn_imaging_combinado13",
+      "label": "XMM-Newton / EPN coadd 13 obs",
+      "instrument": "EPN IMAGING Thin1",
+      "energy_min_keV": 0.15,
+      "energy_max_keV": 12.0,
+      "time_resolution_us": 73400.0,
+      "dead_time_us": 0.0,
+      "calibration": "Soma dos operadores de resposta das 13 observacoes, ponderada pela exposicao; ARF e RMF por observacao gerados pelo SAS via XREDUX.",
+      "source_url": "https://www.cosmos.esa.int/web/xmm-newton",
+      "profile_file": "instrument_data/profiles/xmm_epn_imaging_combinado13.csv",
+      "response_file": "instrument_data/profiles/xmm_epn_imaging_combinado13.rmfbin",
+      "redistribution": "full_sparse_ogip_rmf",
+      "raw_files": []
+    },
+    {
+      "id": "xmm_epn_primefullwindow_0157360101_s005",
+      "label": "XMM-Newton / EPN PRIMEFULLWINDOW obs 0157360101",
+      "instrument": "EPN PRIMEFULLWINDOW",
+      "energy_min_keV": 0.15,
+      "energy_max_keV": 12.0,
+      "time_resolution_us": 73400.0,
+      "dead_time_us": 0.0,
+      "calibration": "resposta da observacao 0157360101, reconstrucao reconstrucao_5906a57, commit 5906a5705a95ed135f27421348a7fc91ba31669c",
+      "source_url": "https://www.cosmos.esa.int/web/xmm-newton",
+      "profile_file": "instrumento/instrument_data/profiles/xmm_epn_primefullwindow_0157360101_s005.csv",
+      "response_file": "instrumento/instrument_data/profiles/xmm_epn_primefullwindow_0157360101_s005.rmfbin",
+      "redistribution": "full_sparse_ogip_rmf",
+      "raw_files": [],
+      "procedencia": {
+        "obsid": "0157360101",
+        "set_id": "RXJ1308.6_2127_0157360101_epn_s005",
+        "manifest_sha256": "ac9710346858c3e5c13478a3f7a5568cefdab39ad3637afaf316d7fdecc5fb26",
+        "sas_rand_seed": "157360101",
+        "origem_csv": "<XMM>/reconstrucao_5906a57/produtos/RXJ1308.6_2127/0157360101/pulsaris/profile/xmm_epn_primefullwindow_0157360101_s005.csv",
+        "origem_rmfbin": "<XMM>/reconstrucao_5906a57/produtos/RXJ1308.6_2127/0157360101/pulsaris/profile/xmm_epn_primefullwindow_0157360101_s005.rmfbin",
+        "sha256_csv": "869e5bbeb447e77302e427dc06a30fdb6fc7814ba8bfe39925529efd5365c5fb",
+        "sha256_rmfbin": "0e022a17591cd4a060b2bbc181259572fcee3fc390d39d20fb083a709427b3a1"
+      }
+    },
+    {
+      "id": "xmm_epn_primefullwindow_0163560101_s003",
+      "label": "XMM-Newton / EPN PRIMEFULLWINDOW obs 0163560101",
+      "instrument": "EPN PRIMEFULLWINDOW",
+      "energy_min_keV": 0.15,
+      "energy_max_keV": 12.0,
+      "time_resolution_us": 73400.0,
+      "dead_time_us": 0.0,
+      "calibration": "resposta da observacao 0163560101, reconstrucao reconstrucao_5906a57, commit 5906a5705a95ed135f27421348a7fc91ba31669c",
+      "source_url": "https://www.cosmos.esa.int/web/xmm-newton",
+      "profile_file": "instrumento/instrument_data/profiles/xmm_epn_primefullwindow_0163560101_s003.csv",
+      "response_file": "instrumento/instrument_data/profiles/xmm_epn_primefullwindow_0163560101_s003.rmfbin",
+      "redistribution": "full_sparse_ogip_rmf",
+      "raw_files": [],
+      "procedencia": {
+        "obsid": "0163560101",
+        "set_id": "RXJ1308.6_2127_0163560101_epn_s003",
+        "manifest_sha256": "13c4c42caf55a6591fd299e9b5753356e377f9aeafd79b894a4950c07d49c59d",
+        "sas_rand_seed": "163560101",
+        "origem_csv": "<XMM>/reconstrucao_5906a57/produtos/RXJ1308.6_2127/0163560101/pulsaris/profile/xmm_epn_primefullwindow_0163560101_s003.csv",
+        "origem_rmfbin": "<XMM>/reconstrucao_5906a57/produtos/RXJ1308.6_2127/0163560101/pulsaris/profile/xmm_epn_primefullwindow_0163560101_s003.rmfbin",
+        "sha256_csv": "0ee9295cf5011539ded63edbcfcddf85dde7dabd673185d91ab286af374157d9",
+        "sha256_rmfbin": "6afde8d4f665be75de94e1cd89dc378368ac6b46fd5cbbdd37a70db254db3a9d"
+      }
+    },
+    {
+      "id": "xmm_epn_primefullwindow_0305900201_s003",
+      "label": "XMM-Newton / EPN PRIMEFULLWINDOW obs 0305900201",
+      "instrument": "EPN PRIMEFULLWINDOW",
+      "energy_min_keV": 0.15,
+      "energy_max_keV": 12.0,
+      "time_resolution_us": 73400.0,
+      "dead_time_us": 0.0,
+      "calibration": "resposta da observacao 0305900201, reconstrucao reconstrucao_5906a57, commit 5906a5705a95ed135f27421348a7fc91ba31669c",
+      "source_url": "https://www.cosmos.esa.int/web/xmm-newton",
+      "profile_file": "instrumento/instrument_data/profiles/xmm_epn_primefullwindow_0305900201_s003.csv",
+      "response_file": "instrumento/instrument_data/profiles/xmm_epn_primefullwindow_0305900201_s003.rmfbin",
+      "redistribution": "full_sparse_ogip_rmf",
+      "raw_files": [],
+      "procedencia": {
+        "obsid": "0305900201",
+        "set_id": "RXJ1308.6_2127_0305900201_epn_s003",
+        "manifest_sha256": "855ed03423fe6cedfb1e2dea9b08b36a94f58b3aeaa35d313fa90a03c56a3c1e",
+        "sas_rand_seed": "305900201",
+        "origem_csv": "<XMM>/reconstrucao_5906a57/produtos/RXJ1308.6_2127/0305900201/pulsaris/profile/xmm_epn_primefullwindow_0305900201_s003.csv",
+        "origem_rmfbin": "<XMM>/reconstrucao_5906a57/produtos/RXJ1308.6_2127/0305900201/pulsaris/profile/xmm_epn_primefullwindow_0305900201_s003.rmfbin",
+        "sha256_csv": "1df24cbbc16df79ab2674b3db1951c3d17acd8652570664d4ad6dbb4dcf3aa52",
+        "sha256_rmfbin": "8524ccea260fa798bef93389d03d9fb8aa38ba78f622f554efe67f0f57598241"
+      }
+    },
+    {
+      "id": "xmm_epn_primefullwindow_0305900301_s003",
+      "label": "XMM-Newton / EPN PRIMEFULLWINDOW obs 0305900301",
+      "instrument": "EPN PRIMEFULLWINDOW",
+      "energy_min_keV": 0.15,
+      "energy_max_keV": 12.0,
+      "time_resolution_us": 73400.0,
+      "dead_time_us": 0.0,
+      "calibration": "resposta da observacao 0305900301, reconstrucao reconstrucao_5906a57, commit 5906a5705a95ed135f27421348a7fc91ba31669c",
+      "source_url": "https://www.cosmos.esa.int/web/xmm-newton",
+      "profile_file": "instrumento/instrument_data/profiles/xmm_epn_primefullwindow_0305900301_s003.csv",
+      "response_file": "instrumento/instrument_data/profiles/xmm_epn_primefullwindow_0305900301_s003.rmfbin",
+      "redistribution": "full_sparse_ogip_rmf",
+      "raw_files": [],
+      "procedencia": {
+        "obsid": "0305900301",
+        "set_id": "RXJ1308.6_2127_0305900301_epn_s003",
+        "manifest_sha256": "344c75cc8f14beb7bd41ac0b2a3684b44d1672d5085be2a13d7c9dd86eab2241",
+        "sas_rand_seed": "305900301",
+        "origem_csv": "<XMM>/reconstrucao_5906a57/produtos/RXJ1308.6_2127/0305900301/pulsaris/profile/xmm_epn_primefullwindow_0305900301_s003.csv",
+        "origem_rmfbin": "<XMM>/reconstrucao_5906a57/produtos/RXJ1308.6_2127/0305900301/pulsaris/profile/xmm_epn_primefullwindow_0305900301_s003.rmfbin",
+        "sha256_csv": "ee2468b45cd434ecae8ed982c7802920816d218e8f380feedc3c48b355b1d571",
+        "sha256_rmfbin": "74596b82f8b4c27876e289e9c2d6a6081a51cb0433aa8af6359aadfc94825cc3"
+      }
+    },
+    {
+      "id": "xmm_epn_primefullwindow_0305900401_s003",
+      "label": "XMM-Newton / EPN PRIMEFULLWINDOW obs 0305900401",
+      "instrument": "EPN PRIMEFULLWINDOW",
+      "energy_min_keV": 0.15,
+      "energy_max_keV": 12.0,
+      "time_resolution_us": 73400.0,
+      "dead_time_us": 0.0,
+      "calibration": "resposta da observacao 0305900401, reconstrucao reconstrucao_5906a57, commit 5906a5705a95ed135f27421348a7fc91ba31669c",
+      "source_url": "https://www.cosmos.esa.int/web/xmm-newton",
+      "profile_file": "instrumento/instrument_data/profiles/xmm_epn_primefullwindow_0305900401_s003.csv",
+      "response_file": "instrumento/instrument_data/profiles/xmm_epn_primefullwindow_0305900401_s003.rmfbin",
+      "redistribution": "full_sparse_ogip_rmf",
+      "raw_files": [],
+      "procedencia": {
+        "obsid": "0305900401",
+        "set_id": "RXJ1308.6_2127_0305900401_epn_s003",
+        "manifest_sha256": "05cb7c4853044c3e3340e46f2ce7c6c306d77b5053c282775db6032678933a50",
+        "sas_rand_seed": "305900401",
+        "origem_csv": "<XMM>/reconstrucao_5906a57/produtos/RXJ1308.6_2127/0305900401/pulsaris/profile/xmm_epn_primefullwindow_0305900401_s003.csv",
+        "origem_rmfbin": "<XMM>/reconstrucao_5906a57/produtos/RXJ1308.6_2127/0305900401/pulsaris/profile/xmm_epn_primefullwindow_0305900401_s003.rmfbin",
+        "sha256_csv": "cb7a4a0f3f1f5ccc7e6ffb27321027312a66f0aa6acd747fa5d1b5c5f9675576",
+        "sha256_rmfbin": "96e1969899f8ee8e9a69f1c30ac027f0f63b6d010fc5ac8177cc421e2529f1ac"
+      }
+    },
+    {
+      "id": "xmm_epn_primefullwindow_0305900601_s003",
+      "label": "XMM-Newton / EPN PRIMEFULLWINDOW obs 0305900601",
+      "instrument": "EPN PRIMEFULLWINDOW",
+      "energy_min_keV": 0.15,
+      "energy_max_keV": 12.0,
+      "time_resolution_us": 73400.0,
+      "dead_time_us": 0.0,
+      "calibration": "resposta da observacao 0305900601, reconstrucao reconstrucao_5906a57, commit 5906a5705a95ed135f27421348a7fc91ba31669c",
+      "source_url": "https://www.cosmos.esa.int/web/xmm-newton",
+      "profile_file": "instrumento/instrument_data/profiles/xmm_epn_primefullwindow_0305900601_s003.csv",
+      "response_file": "instrumento/instrument_data/profiles/xmm_epn_primefullwindow_0305900601_s003.rmfbin",
+      "redistribution": "full_sparse_ogip_rmf",
+      "raw_files": [],
+      "procedencia": {
+        "obsid": "0305900601",
+        "set_id": "RXJ1308.6_2127_0305900601_epn_s003",
+        "manifest_sha256": "43698e9df3fe35af0c6b5cd082222a951e152dae11e1d88ee1578c4b8ce63d5f",
+        "sas_rand_seed": "305900601",
+        "origem_csv": "<XMM>/reconstrucao_5906a57/produtos/RXJ1308.6_2127/0305900601/pulsaris/profile/xmm_epn_primefullwindow_0305900601_s003.csv",
+        "origem_rmfbin": "<XMM>/reconstrucao_5906a57/produtos/RXJ1308.6_2127/0305900601/pulsaris/profile/xmm_epn_primefullwindow_0305900601_s003.rmfbin",
+        "sha256_csv": "da04a31be19cc970ef7fd528b21d06c9f55d0945f18191c17ea9a613d0913c25",
+        "sha256_rmfbin": "cd3bb1cec0c9814410ef09a2be613f619dd37c9bba9cadf342f6c8d610378b17"
+      }
+    },
+    {
+      "id": "xmm_epn_primelargewindow_0402850301_s003",
+      "label": "XMM-Newton / EPN PRIMELARGEWINDOW obs 0402850301",
+      "instrument": "EPN PRIMELARGEWINDOW",
+      "energy_min_keV": 0.15,
+      "energy_max_keV": 12.0,
+      "time_resolution_us": 47700.0,
+      "dead_time_us": 0.0,
+      "calibration": "resposta da observacao 0402850301, reconstrucao reconstrucao_5906a57, commit 5906a5705a95ed135f27421348a7fc91ba31669c",
+      "source_url": "https://www.cosmos.esa.int/web/xmm-newton",
+      "profile_file": "instrumento/instrument_data/profiles/xmm_epn_primelargewindow_0402850301_s003.csv",
+      "response_file": "instrumento/instrument_data/profiles/xmm_epn_primelargewindow_0402850301_s003.rmfbin",
+      "redistribution": "full_sparse_ogip_rmf",
+      "raw_files": [],
+      "procedencia": {
+        "obsid": "0402850301",
+        "set_id": "RXJ1308.6_2127_0402850301_epn_s003",
+        "manifest_sha256": "51c7e6ecc24c919bd461bb9d6987d199bb50da0a1c47d64e7c3fd41caff6b22c",
+        "sas_rand_seed": "402850301",
+        "origem_csv": "<XMM>/reconstrucao_5906a57/produtos/RXJ1308.6_2127/0402850301/pulsaris/profile/xmm_epn_primelargewindow_0402850301_s003.csv",
+        "origem_rmfbin": "<XMM>/reconstrucao_5906a57/produtos/RXJ1308.6_2127/0402850301/pulsaris/profile/xmm_epn_primelargewindow_0402850301_s003.rmfbin",
+        "sha256_csv": "a53827b9b832d2303faa012eb4218eb2d759d8acf900f2835641655782f8c673",
+        "sha256_rmfbin": "fd43ec2e5e2644ebb03bd3d0cee6edc3ebd4d6c5d488de144965709e3a6b3b01"
+      }
+    },
+    {
+      "id": "xmm_epn_primelargewindow_0402850401_s003",
+      "label": "XMM-Newton / EPN PRIMELARGEWINDOW obs 0402850401",
+      "instrument": "EPN PRIMELARGEWINDOW",
+      "energy_min_keV": 0.15,
+      "energy_max_keV": 12.0,
+      "time_resolution_us": 47700.0,
+      "dead_time_us": 0.0,
+      "calibration": "resposta da observacao 0402850401, reconstrucao reconstrucao_5906a57, commit 5906a5705a95ed135f27421348a7fc91ba31669c",
+      "source_url": "https://www.cosmos.esa.int/web/xmm-newton",
+      "profile_file": "instrumento/instrument_data/profiles/xmm_epn_primelargewindow_0402850401_s003.csv",
+      "response_file": "instrumento/instrument_data/profiles/xmm_epn_primelargewindow_0402850401_s003.rmfbin",
+      "redistribution": "full_sparse_ogip_rmf",
+      "raw_files": [],
+      "procedencia": {
+        "obsid": "0402850401",
+        "set_id": "RXJ1308.6_2127_0402850401_epn_s003",
+        "manifest_sha256": "ee3898c4063ebd4c0acf6676646e92cab5b33329b11de0f2aff55fd9f49d682b",
+        "sas_rand_seed": "402850401",
+        "origem_csv": "<XMM>/reconstrucao_5906a57/produtos/RXJ1308.6_2127/0402850401/pulsaris/profile/xmm_epn_primelargewindow_0402850401_s003.csv",
+        "origem_rmfbin": "<XMM>/reconstrucao_5906a57/produtos/RXJ1308.6_2127/0402850401/pulsaris/profile/xmm_epn_primelargewindow_0402850401_s003.rmfbin",
+        "sha256_csv": "c0972b74cac1c3f8615c328aa00f79498862ba6da23b78fae957030962dd7406",
+        "sha256_rmfbin": "f3339f6cf0492a2fa5aad451500e73b37dd26387b27b4509d40529adc2afc03e"
+      }
+    },
+    {
+      "id": "xmm_epn_primelargewindow_0402850501_s003",
+      "label": "XMM-Newton / EPN PRIMELARGEWINDOW obs 0402850501",
+      "instrument": "EPN PRIMELARGEWINDOW",
+      "energy_min_keV": 0.15,
+      "energy_max_keV": 12.0,
+      "time_resolution_us": 47700.0,
+      "dead_time_us": 0.0,
+      "calibration": "resposta da observacao 0402850501, reconstrucao reconstrucao_5906a57, commit 5906a5705a95ed135f27421348a7fc91ba31669c",
+      "source_url": "https://www.cosmos.esa.int/web/xmm-newton",
+      "profile_file": "instrumento/instrument_data/profiles/xmm_epn_primelargewindow_0402850501_s003.csv",
+      "response_file": "instrumento/instrument_data/profiles/xmm_epn_primelargewindow_0402850501_s003.rmfbin",
+      "redistribution": "full_sparse_ogip_rmf",
+      "raw_files": [],
+      "procedencia": {
+        "obsid": "0402850501",
+        "set_id": "RXJ1308.6_2127_0402850501_epn_s003",
+        "manifest_sha256": "bec3187591604bd925afd812dd67182eddc032b7cb4b77bb33e08a612a5c4fbe",
+        "sas_rand_seed": "402850501",
+        "origem_csv": "<XMM>/reconstrucao_5906a57/produtos/RXJ1308.6_2127/0402850501/pulsaris/profile/xmm_epn_primelargewindow_0402850501_s003.csv",
+        "origem_rmfbin": "<XMM>/reconstrucao_5906a57/produtos/RXJ1308.6_2127/0402850501/pulsaris/profile/xmm_epn_primelargewindow_0402850501_s003.rmfbin",
+        "sha256_csv": "94552fc747477e7be495dfc1e7c3700b0c6dfb217cd6c8e78f775cb8c57ef589",
+        "sha256_rmfbin": "ebe470a8f08c6a7ca73cf40eb70954964cb3880f9fce31d92ef25dd5e8474370"
+      }
+    },
+    {
+      "id": "xmm_epn_primelargewindow_0402850701_s003",
+      "label": "XMM-Newton / EPN PRIMELARGEWINDOW obs 0402850701",
+      "instrument": "EPN PRIMELARGEWINDOW",
+      "energy_min_keV": 0.15,
+      "energy_max_keV": 12.0,
+      "time_resolution_us": 47700.0,
+      "dead_time_us": 0.0,
+      "calibration": "resposta da observacao 0402850701, reconstrucao reconstrucao_5906a57, commit 5906a5705a95ed135f27421348a7fc91ba31669c",
+      "source_url": "https://www.cosmos.esa.int/web/xmm-newton",
+      "profile_file": "instrumento/instrument_data/profiles/xmm_epn_primelargewindow_0402850701_s003.csv",
+      "response_file": "instrumento/instrument_data/profiles/xmm_epn_primelargewindow_0402850701_s003.rmfbin",
+      "redistribution": "full_sparse_ogip_rmf",
+      "raw_files": [],
+      "procedencia": {
+        "obsid": "0402850701",
+        "set_id": "RXJ1308.6_2127_0402850701_epn_s003",
+        "manifest_sha256": "1eeff5b0760eb1bc1b2c03db8cd1bc4d0fe14d3769daf8332bc7110857d05243",
+        "sas_rand_seed": "402850701",
+        "origem_csv": "<XMM>/reconstrucao_5906a57/produtos/RXJ1308.6_2127/0402850701/pulsaris/profile/xmm_epn_primelargewindow_0402850701_s003.csv",
+        "origem_rmfbin": "<XMM>/reconstrucao_5906a57/produtos/RXJ1308.6_2127/0402850701/pulsaris/profile/xmm_epn_primelargewindow_0402850701_s003.rmfbin",
+        "sha256_csv": "a07de6805ffbee9b5431058a6cabff1faf23e8f7c599155d514edf1d8a3c2e00",
+        "sha256_rmfbin": "5ae2db7b9bcfe7d6a90d95ac4fbf0a7c8f1f93c00f5a6178cf099ee2cdbf7b50"
+      }
+    },
+    {
+      "id": "xmm_epn_primelargewindow_0402850901_s003",
+      "label": "XMM-Newton / EPN PRIMELARGEWINDOW obs 0402850901",
+      "instrument": "EPN PRIMELARGEWINDOW",
+      "energy_min_keV": 0.15,
+      "energy_max_keV": 12.0,
+      "time_resolution_us": 47700.0,
+      "dead_time_us": 0.0,
+      "calibration": "resposta da observacao 0402850901, reconstrucao reconstrucao_5906a57, commit 5906a5705a95ed135f27421348a7fc91ba31669c",
+      "source_url": "https://www.cosmos.esa.int/web/xmm-newton",
+      "profile_file": "instrumento/instrument_data/profiles/xmm_epn_primelargewindow_0402850901_s003.csv",
+      "response_file": "instrumento/instrument_data/profiles/xmm_epn_primelargewindow_0402850901_s003.rmfbin",
+      "redistribution": "full_sparse_ogip_rmf",
+      "raw_files": [],
+      "procedencia": {
+        "obsid": "0402850901",
+        "set_id": "RXJ1308.6_2127_0402850901_epn_s003",
+        "manifest_sha256": "4ed083c9cd4185dd3acaa068739bbbeecc7ded9c2f173efb86c2ee38818a2992",
+        "sas_rand_seed": "402850901",
+        "origem_csv": "<XMM>/reconstrucao_5906a57/produtos/RXJ1308.6_2127/0402850901/pulsaris/profile/xmm_epn_primelargewindow_0402850901_s003.csv",
+        "origem_rmfbin": "<XMM>/reconstrucao_5906a57/produtos/RXJ1308.6_2127/0402850901/pulsaris/profile/xmm_epn_primelargewindow_0402850901_s003.rmfbin",
+        "sha256_csv": "2fba942ff062e268ea4d284ecdc87443398a4127d2e1c1c40e307459ef36dc23",
+        "sha256_rmfbin": "46724d21da8c1e7d66d126dacf99dca24d13a6fef2035f6770e7a9a25b3c081a"
+      }
+    },
+    {
+      "id": "xmm_epn_primelargewindow_0402851001_s003",
+      "label": "XMM-Newton / EPN PRIMELARGEWINDOW obs 0402851001",
+      "instrument": "EPN PRIMELARGEWINDOW",
+      "energy_min_keV": 0.15,
+      "energy_max_keV": 12.0,
+      "time_resolution_us": 47700.0,
+      "dead_time_us": 0.0,
+      "calibration": "resposta da observacao 0402851001, reconstrucao reconstrucao_5906a57, commit 5906a5705a95ed135f27421348a7fc91ba31669c",
+      "source_url": "https://www.cosmos.esa.int/web/xmm-newton",
+      "profile_file": "instrumento/instrument_data/profiles/xmm_epn_primelargewindow_0402851001_s003.csv",
+      "response_file": "instrumento/instrument_data/profiles/xmm_epn_primelargewindow_0402851001_s003.rmfbin",
+      "redistribution": "full_sparse_ogip_rmf",
+      "raw_files": [],
+      "procedencia": {
+        "obsid": "0402851001",
+        "set_id": "RXJ1308.6_2127_0402851001_epn_s003",
+        "manifest_sha256": "b853086ec1f4de005a4e6e8ab6c77a25812b20e7875399cfe6f52decfab54dec",
+        "sas_rand_seed": "402851001",
+        "origem_csv": "<XMM>/reconstrucao_5906a57/produtos/RXJ1308.6_2127/0402851001/pulsaris/profile/xmm_epn_primelargewindow_0402851001_s003.csv",
+        "origem_rmfbin": "<XMM>/reconstrucao_5906a57/produtos/RXJ1308.6_2127/0402851001/pulsaris/profile/xmm_epn_primelargewindow_0402851001_s003.rmfbin",
+        "sha256_csv": "9495def06c5ece0669d099e69c81f154a4c18920d2af44d59519de947320c778",
+        "sha256_rmfbin": "0c03d6d5b15be00659a6fc44c93c90b6522363a5f9f8af20a3cdc71f4edd9ef0"
+      }
+    },
+    {
+      "id": "xmm_epn_primefullwindow_0844140101_s003",
+      "label": "XMM-Newton / EPN PRIMEFULLWINDOW obs 0844140101",
+      "instrument": "EPN PRIMEFULLWINDOW",
+      "energy_min_keV": 0.15,
+      "energy_max_keV": 12.0,
+      "time_resolution_us": 73400.0,
+      "dead_time_us": 0.0,
+      "calibration": "resposta da observacao 0844140101, reconstrucao reconstrucao_5906a57, commit 5906a5705a95ed135f27421348a7fc91ba31669c",
+      "source_url": "https://www.cosmos.esa.int/web/xmm-newton",
+      "profile_file": "instrumento/instrument_data/profiles/xmm_epn_primefullwindow_0844140101_s003.csv",
+      "response_file": "instrumento/instrument_data/profiles/xmm_epn_primefullwindow_0844140101_s003.rmfbin",
+      "redistribution": "full_sparse_ogip_rmf",
+      "raw_files": [],
+      "procedencia": {
+        "obsid": "0844140101",
+        "set_id": "RXJ1308.6_2127_0844140101_epn_s003",
+        "manifest_sha256": "c2aa61f888a9bf53e712c8bb24af5de31effd09cd5fbbefd3141dffb4ecd0f4c",
+        "sas_rand_seed": "844140101",
+        "origem_csv": "<XMM>/reconstrucao_5906a57/produtos/RXJ1308.6_2127/0844140101/pulsaris/profile/xmm_epn_primefullwindow_0844140101_s003.csv",
+        "origem_rmfbin": "<XMM>/reconstrucao_5906a57/produtos/RXJ1308.6_2127/0844140101/pulsaris/profile/xmm_epn_primefullwindow_0844140101_s003.rmfbin",
+        "sha256_csv": "fb454f929764def73f0a995f0ec60aa156a9b075e7d7691ae58424a40c96a478",
+        "sha256_rmfbin": "83dfcadb72a0740072e6aa7cf4e7e43fbfa5f064419aa392bc51977f01296b4a"
+      }
+    }
+  ]
+}

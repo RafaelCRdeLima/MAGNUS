@@ -54,3 +54,13 @@ tabelas/**/*.magnus
 !tabelas/obsoletas/magnus_campoBg.magnus
 !tabelas/obsoletas/magnus_campoBg_denso.magnus
 !tabelas/obsoletas/magnus_campoBg_denso_ext.magnus
+
+# Checkpoints de MCMC: dados de trabalho, regeneraveis, e os de 2026-09-25
+# passavam de 100 MB, que e o limite do GitHub por arquivo.
+exploracoes/**/checkpoint.npz
+
+# Saidas temporarias de geracao de PDF: nao sao fonte.
+tmp/
+
+# Binario de referencia para comparacao bit a bit: produto de build, nao fonte.
+referencia/

@@ -1,0 +1,184 @@
+{
+ "format": "PULSARIS_INSTRUMENT_PROFILES",
+ "version": 2,
+ "generated_by": "scripts/build_instrument_profiles.py",
+ "profiles": [
+  {
+   "id": "generic",
+   "label": "Ideal generic detector",
+   "instrument": "Ideal detector",
+   "energy_min_keV": 0.1,
+   "energy_max_keV": 100.0,
+   "time_resolution_us": 0.0,
+   "dead_time_us": 0.0,
+   "calibration": "Ideal response with unit area and perfect energy resolution.",
+   "source_url": "https://heasarc.gsfc.nasa.gov/docs/heasarc/caldb/docs/memos/cal_gen_92_002/cal_gen_92_002.html"
+  },
+  {
+   "id": "nicer_xti",
+   "label": "NICER / XTI",
+   "instrument": "XTI on-axis (52 FPM)",
+   "energy_min_keV": 0.2,
+   "energy_max_keV": 12.0,
+   "time_resolution_us": 0.1,
+   "dead_time_us": 15.0,
+   "calibration": "On-axis CALDB ARF v005 plus full OGIP RMF v003; representative response, not observation-specific.",
+   "source_url": "https://heasarc.gsfc.nasa.gov/docs/nicer/analysis_threads/arf-rmf/",
+   "profile_file": "instrument_data/profiles/nicer_xti.csv",
+   "response_file": "instrument_data/profiles/nicer_xti.rmfbin",
+   "redistribution": "full_sparse_ogip_rmf",
+   "raw_files": [
+    {
+     "path": "instrument_data/raw/nicer/nixtiaveonaxis20170601v005.arf",
+     "download_url": "https://heasarc.gsfc.nasa.gov/FTP/caldb/data/nicer/xti/cpf/arf/nixtiaveonaxis20170601v005.arf",
+     "sha256": "f451acf23e13002ac4f7a45e51159b438e9f1bf708138c1a7ce9c96ef6e2f5cd"
+    },
+    {
+     "path": "instrument_data/raw/nicer/nixtiref20170601v003.rmf",
+     "download_url": "https://heasarc.gsfc.nasa.gov/FTP/caldb/data/nicer/xti/cpf/rmf/nixtiref20170601v003.rmf",
+     "sha256": "eb18dbb0ee86d427d32445aea6e6ca35330b80f0c1a806f999418c3202ec9e07"
+    }
+   ]
+  },
+  {
+   "id": "xmm_epn_timing",
+   "label": "XMM-NEWTON / EPIC-pn",
+   "instrument": "EPIC-pn Timing, e4, PATTERN 0-4, Y9",
+   "energy_min_keV": 0.3,
+   "energy_max_keV": 12.0,
+   "time_resolution_us": 29.52,
+   "dead_time_us": 0.0,
+   "calibration": "Canned response for simulation only: the redistribution is the official v22.0 RMF but the effective area is a representative on-axis envelope, not an ARF for any real observation. Reduce real data with XREDUX to get an observation-specific profile.",
+   "source_url": "https://www.cosmos.esa.int/web/xmm-newton/epic-response-files",
+   "profile_file": "instrument_data/profiles/xmm_epn_timing.csv",
+   "response_file": "instrument_data/profiles/xmm_epn_timing.rmfbin",
+   "redistribution": "full_sparse_ogip_rmf",
+   "raw_files": [
+    {
+     "path": "instrument_data/raw/xmm_newton/epn_e4_ti40_sdY9_v22.0.rmf",
+     "download_url": "https://heasarc.gsfc.nasa.gov/FTP/xmm/data/responses/PN/epn_e4_ti40_sdY9_v22.0.rmf",
+     "sha256": "efb4a3c1106d67b4df3867cf790d12be4618f2b5d2b28b8e7be6e49b7228aea0"
+    }
+   ]
+  },
+  {
+   "id": "nustar_fpma",
+   "label": "NuSTAR / FPMA",
+   "instrument": "FPMA, point source, 30 arcsec, 1 arcmin off-axis",
+   "energy_min_keV": 3.0,
+   "energy_max_keV": 79.0,
+   "time_resolution_us": 2.0,
+   "dead_time_us": 2500.0,
+   "calibration": "Official proposer package: ARF plus full RMF for one optic; 30 arcsec region.",
+   "source_url": "https://www.nustar.caltech.edu/page/response_files",
+   "profile_file": "instrument_data/profiles/nustar_fpma.csv",
+   "response_file": "instrument_data/profiles/nustar_fpma.rmfbin",
+   "redistribution": "full_sparse_ogip_rmf",
+   "raw_files": [
+    {
+     "path": "instrument_data/raw/nustar/point_sources/point_30arcsecRad_1arcminOA.arf",
+     "download_url": "https://www.nustar.caltech.edu/system/media_files/binaries/32/original/nustar_point_sources_for_proposers.tgz",
+     "sha256": "fff15a1dcadba9839e166e0285e9b36753551ef90bac2dd9822cfb1e1390cda4"
+    },
+    {
+     "path": "instrument_data/raw/nustar/point_sources/nustar.rmf",
+     "download_url": "https://www.nustar.caltech.edu/system/media_files/binaries/32/original/nustar_point_sources_for_proposers.tgz",
+     "sha256": "8708c912053b5d483ebdf1f7b081bad6473a5e9a2703415814d7e02190bcc30c"
+    }
+   ]
+  },
+  {
+   "id": "chandra_aciss",
+   "label": "Chandra / ACIS-S",
+   "instrument": "ACIS-S3 aimpoint, Cycle 28, Timed Exposure",
+   "energy_min_keV": 0.3,
+   "energy_max_keV": 12.0,
+   "time_resolution_us": 3200000.0,
+   "dead_time_us": 0.0,
+   "calibration": "Full Cycle 28 ARF and RMF at the aimpoint; not suitable for analyzing real observations.",
+   "source_url": "https://cxc.cfa.harvard.edu/caldb/prop_plan/imaging/",
+   "profile_file": "instrument_data/profiles/chandra_aciss.csv",
+   "response_file": "instrument_data/profiles/chandra_aciss.rmfbin",
+   "redistribution": "full_sparse_ogip_rmf",
+   "raw_files": [
+    {
+     "path": "instrument_data/raw/chandra/aciss_aimpt_cy28.arf",
+     "download_url": "https://cxc.cfa.harvard.edu/caldb/prop_plan/imaging/CY28/aciss_aimpt_cy28.arf",
+     "sha256": "f9cc39c8454caec657768f9c900365e7af0db4d617eaa540c0a3623234e8c8b0"
+    },
+    {
+     "path": "instrument_data/raw/chandra/aciss_aimpt_cy28.rmf",
+     "download_url": "https://cxc.cfa.harvard.edu/caldb/prop_plan/imaging/CY28/aciss_aimpt_cy28.rmf",
+     "sha256": "843b218374504a8de8e6694df65f17dcc4fd66892645042e63aeef53df7e6003"
+    }
+   ]
+  },
+  {
+   "id": "xmm_epn_imaging_0844140101",
+   "label": "XMM-Newton / EPN 0844140101",
+   "instrument": "EPN IMAGING Thin1",
+   "energy_min_keV": 0.15,
+   "energy_max_keV": 12.0,
+   "time_resolution_us": 73400.0,
+   "dead_time_us": 0.0,
+   "calibration": "ARF e RMF gerados pelo SAS para a observa\u00e7\u00e3o 0844140101, regi\u00e3o c\u00edrculo r=30.0\" em (25943,23824).",
+   "source_url": "https://www.cosmos.esa.int/web/xmm-newton",
+   "profile_file": "instrument_data/profiles/xmm_epn_imaging_0844140101.csv",
+   "response_file": "instrument_data/profiles/xmm_epn_imaging_0844140101.rmfbin",
+   "redistribution": "full_sparse_ogip_rmf",
+   "raw_files": [
+    {
+     "path": "instrument_data/raw/xmm_newton/src.arf",
+     "download_url": "https://www.cosmos.esa.int/web/xmm-newton",
+     "sha256": "cf679bd6ee77c9e6dcf3af1223c82d3acd15c0373094f70c03f168a39b7b659e"
+    },
+    {
+     "path": "instrument_data/raw/xmm_newton/src.rmf",
+     "download_url": "https://www.cosmos.esa.int/web/xmm-newton",
+     "sha256": "d2f15c3188a5f0a5a22daaafcd4b10d7811a22ead2362a09d9e43046257414df"
+    }
+   ]
+  },
+  {
+   "id": "xmm_epn_imaging_0852980201",
+   "label": "XMM-Newton / EPN 0852980201",
+   "instrument": "EPN IMAGING Thin1",
+   "energy_min_keV": 0.15,
+   "energy_max_keV": 12.0,
+   "time_resolution_us": 5700.0,
+   "dead_time_us": 0.0,
+   "calibration": "ARF e RMF gerados pelo SAS para a observa\u00e7\u00e3o 0852980201, regi\u00e3o c\u00edrculo r=30.0\" em (24955,24079).",
+   "source_url": "https://www.cosmos.esa.int/web/xmm-newton",
+   "profile_file": "instrument_data/profiles/xmm_epn_imaging_0852980201.csv",
+   "response_file": "instrument_data/profiles/xmm_epn_imaging_0852980201.rmfbin",
+   "redistribution": "full_sparse_ogip_rmf",
+   "raw_files": [
+    {
+     "path": "instrument_data/raw/xmm_newton/src.arf",
+     "download_url": "https://www.cosmos.esa.int/web/xmm-newton",
+     "sha256": "f0806c055191a06fa5fa9621c9e5cf1b859b70dfb347fe94fedaafcac4f8e163"
+    },
+    {
+     "path": "instrument_data/raw/xmm_newton/src.rmf",
+     "download_url": "https://www.cosmos.esa.int/web/xmm-newton",
+     "sha256": "0aa1aebf8ddd8a3eac0fd8060b3e43726465e2c0792798a1c07c2b24979c5dc9"
+    }
+   ]
+  },
+  {
+   "id": "xmm_epn_imaging_combinado13",
+   "label": "XMM-Newton / EPN coadd 13 obs",
+   "instrument": "EPN IMAGING Thin1",
+   "energy_min_keV": 0.15,
+   "energy_max_keV": 12.0,
+   "time_resolution_us": 73400.0,
+   "dead_time_us": 0.0,
+   "calibration": "Soma dos operadores de resposta das 13 observacoes, ponderada pela exposicao; ARF e RMF por observacao gerados pelo SAS via XREDUX.",
+   "source_url": "https://www.cosmos.esa.int/web/xmm-newton",
+   "profile_file": "instrument_data/profiles/xmm_epn_imaging_combinado13.csv",
+   "response_file": "instrument_data/profiles/xmm_epn_imaging_combinado13.rmfbin",
+   "redistribution": "full_sparse_ogip_rmf",
+   "raw_files": []
+  }
+ ]
+}
